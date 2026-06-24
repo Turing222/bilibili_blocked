@@ -1,0 +1,19 @@
+{
+  "name": "bilibili-blocked-videos-by-tags-refactor",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "node scripts/build-userjs.mjs",
+    "test": "node --test tests/*.test.js",
+    "check": "node scripts/build-userjs.mjs && node --check dist/bilibili_blocked_videos_by_tags.user.js && npm run test",
+    "lint": "eslint src tests",
+    "pw:chrome": "powershell.exe -NoProfile -ExecutionPolicy Bypass -File ..\\tools\\bilibili-browser\\start-chrome.ps1",
+    "pw:smoke": "node scripts/playwright-smoke.mjs"
+  },
+  "devDependencies": {
+    "@eslint/js": "^10.0.1",
+    "@playwright/test": "1.61.1",
+    "eslint": "^10.5.0",
+    "globals": "^17.7.0"
+  }
+}
