@@ -20,6 +20,7 @@ function createMockVideoElement() {
 
 function createContextMenuEvent(modifiers = {}) {
     let defaultPrevented = false;
+    let propagationStopped = false;
 
     return {
         shiftKey: modifiers.shift === true,
@@ -31,8 +32,14 @@ function createContextMenuEvent(modifiers = {}) {
         preventDefault() {
             defaultPrevented = true;
         },
+        stopPropagation() {
+            propagationStopped = true;
+        },
         get defaultPrevented() {
             return defaultPrevented;
+        },
+        get propagationStopped() {
+            return propagationStopped;
         },
     };
 }
@@ -87,6 +94,7 @@ describe("card context menu actions", () => {
         videoElement.dispatchContextMenu(event);
 
         assert.equal(event.defaultPrevented, true);
+        assert.equal(event.propagationStopped, true);
         assert.equal(panelCall?.[1], "BV1test");
         assert.equal(panelCall?.[3], undefined);
         assert.equal(panelCall?.[4], 10);

@@ -21,6 +21,7 @@ export function createCardActions() {
                 }
 
                 event.preventDefault();
+                event.stopPropagation?.();
                 const videoInfo = context.videoStore.getVideoInfo(videoBv);
                 if (videoInfo && videoInfo.blockedTarget) {
                     if (typeof window.bbvtShowHoverReviewPanel === "function") {

@@ -343,6 +343,7 @@ function quickBlockVideo(context, videoBv, videoElement, x = 0, y = 0) {
         tagsLoading: true,
         x,
         y,
+        animated: false,
     };
 
     const overlay = createQuickBlockEl("div", "");
@@ -369,6 +370,9 @@ function quickBlockVideo(context, videoBv, videoElement, x = 0, y = 0) {
         context.apiClient
             .ensurePartitionData(videoBv, context.videoStore, { bypassBlockedSkip: true })
             .then((partition) => {
+                if (!overlay.parentNode) {
+                    return;
+                }
                 state.partitionName = partition.name;
                 state.partitionId = partition.id;
                 state.partitionLoading = false;
@@ -379,6 +383,9 @@ function quickBlockVideo(context, videoBv, videoElement, x = 0, y = 0) {
     context.apiClient
         .ensureTagsData(videoBv, context.videoStore, { bypassBlockedSkip: true })
         .then((tags) => {
+            if (!overlay.parentNode) {
+                return;
+            }
             state.tags = tags;
             state.tagsLoading = false;
             renderQuickBlockPopup(overlay, context, state, videoBv, videoElement);
@@ -535,11 +542,14 @@ function renderQuickBlockPopup(overlay, context, state, videoBv, videoElement) {
     overlay.style.top = `${top}px`;
     overlay.style.transformOrigin = `${originX} ${originY}`;
     
-    // Add animation after setting transform-origin to prevent flipping animation
-    overlay.style.animation = "none"; // Reset in case it was already set
-    // Force a reflow to ensure the browser registers the transform-origin before starting the animation
-    void overlay.offsetWidth;
-    overlay.style.animation = "qbFadeIn 0.2s cubic-bezier(0.34, 1.56, 0.64, 1) forwards";
+    if (!state.animated) {
+        // Add animation after setting transform-origin to prevent flipping animation.
+        overlay.style.animation = "none";
+        // Force a reflow so transform-origin is registered before the animation starts.
+        void overlay.offsetWidth;
+        overlay.style.animation = "qbFadeIn 0.2s cubic-bezier(0.34, 1.56, 0.64, 1) forwards";
+        state.animated = true;
+    }
 }
 
 function commitQuickBlock(context, videoElement, videoBv, mutate) {
@@ -7106,6 +7116,7 @@ function createCardActions() {
                 }
 
                 event.preventDefault();
+                event.stopPropagation?.();
                 const videoInfo = context.videoStore.getVideoInfo(videoBv);
                 if (videoInfo && videoInfo.blockedTarget) {
                     if (typeof window.bbvtShowHoverReviewPanel === "function") {
