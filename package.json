@@ -1,6 +1,7 @@
 {
-  "name": "bilibili-blocked-videos-by-tags-refactor",
+  "name": "bilibili-blocked",
   "private": true,
+  "license": "CC-BY-NC-SA-4.0",
   "type": "module",
   "scripts": {
     "build": "node scripts/build-userjs.mjs",

@@ -1,10 +1,12 @@
 // ==UserScript==
-// @name            Bilibili Blocked Videos By Tags Refactor Preview
-// @namespace       https://github.com/tjxwork
-// @version         1.5.0-refactor.0
-// @description     Refactor preview build for Bilibili blocked videos by tags.
-// @author          tjxwork
-// @license         CC-BY-NC-SA
+// @name            Bilibili Blocked
+// @namespace       https://github.com/Turing222/bilibili_blocked
+// @version         2.0.0
+// @description     按标签、标题、UP 主、分区、统计数据等条件屏蔽 B 站视频卡片；模块化重构版。
+// @author          Turing222
+// @license         CC-BY-NC-SA-4.0
+// @homepageURL     https://github.com/Turing222/bilibili_blocked
+// @supportURL      https://github.com/Turing222/bilibili_blocked/issues
 // @icon            https://www.bilibili.com/favicon.ico
 // @match           https://www.bilibili.com/*
 // @match           https://live.bilibili.com/*
