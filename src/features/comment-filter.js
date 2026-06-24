@@ -47,6 +47,7 @@ export const commentFilterFeature = {
         commentElements.forEach((commentElement) => {
             const commentInfo = domAdapter.readCommentInfo(commentElement);
             const blockResult = getCommentBlockResult(settings, commentInfo);
+            blockResult.commentKey = getCommentKey(commentInfo);
 
             mountCommentQuickBlock(context, commentElement, commentInfo);
 
@@ -112,6 +113,18 @@ function getCommentBlockResult(settings, commentInfo) {
     }
 
     return { blocked: false };
+}
+
+function getCommentKey(commentInfo) {
+    const text = String(commentInfo?.text || "").replace(/\s+/g, " ").trim();
+    const userId = String(commentInfo?.userId || "").trim();
+    const userName = String(commentInfo?.userName || "").replace(/\s+/g, " ").trim();
+
+    if (!text && !userId && !userName) {
+        return "";
+    }
+
+    return JSON.stringify([userId, userName, text.slice(0, 240)]);
 }
 
 function createCommentBlockResult({ type, item, reasonItem, configKey = "", regularKey = "", configValue = "", matchedValue = "" }) {

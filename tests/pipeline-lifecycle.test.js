@@ -14,7 +14,7 @@ beforeEach(() => {
     };
 });
 
-function createMockVideoElement({ videoBv = bv, pending = false } = {}) {
+function createMockVideoElement({ pending = false } = {}) {
     return {
         dataset: pending ? { bbvtBlocked: "pending" } : {},
         querySelector: () => null,

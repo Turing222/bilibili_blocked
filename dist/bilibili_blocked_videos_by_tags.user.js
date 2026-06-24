@@ -769,7 +769,8 @@ function mountCommentQuickBlock(context, commentElement, commentInfo) {
 
 function showCommentQuickBlockTrigger(commentElement) {
     const state = commentQuickBlockStates.get(commentElement);
-    if (!state || commentElement.style.display === "none") {
+    if (!state || commentElement.style.display === "none" || isCommentFilterManaged(commentElement)) {
+        hideCommentQuickBlockTrigger();
         return;
     }
 
@@ -788,6 +789,11 @@ function showCommentQuickBlockTrigger(commentElement) {
 
     positionTrigger(trigger, commentElement);
     trigger.hidden = false;
+}
+
+function isCommentFilterManaged(commentElement) {
+    return commentElement.dataset?.bbvtCommentBlocked === "true" ||
+        commentElement.dataset?.bbvtCommentFilterBypass === "true";
 }
 
 function ensureCommentQuickBlockTrigger() {
@@ -2473,6 +2479,7 @@ const commentFilterFeature = {
         commentElements.forEach((commentElement) => {
             const commentInfo = domAdapter.readCommentInfo(commentElement);
             const blockResult = getCommentBlockResult(settings, commentInfo);
+            blockResult.commentKey = getCommentKey(commentInfo);
 
             mountCommentQuickBlock(context, commentElement, commentInfo);
 
@@ -2538,6 +2545,18 @@ function getCommentBlockResult(settings, commentInfo) {
     }
 
     return { blocked: false };
+}
+
+function getCommentKey(commentInfo) {
+    const text = String(commentInfo?.text || "").replace(/\s+/g, " ").trim();
+    const userId = String(commentInfo?.userId || "").trim();
+    const userName = String(commentInfo?.userName || "").replace(/\s+/g, " ").trim();
+
+    if (!text && !userId && !userName) {
+        return "";
+    }
+
+    return JSON.stringify([userId, userName, text.slice(0, 240)]);
 }
 
 function createCommentBlockResult({ type, item, reasonItem, configKey = "", regularKey = "", configValue = "", matchedValue = "" }) {
@@ -6516,11 +6535,11 @@ function createBlockedRenderer() {
 
         renderCommentBlockedState(commentElement, blockResult) {
             if (!blockResult.blocked) {
-                restoreCommentElement(commentElement);
+                restoreCommentElement(commentElement, { commentKey: blockResult.commentKey });
                 return false;
             }
 
-            if (commentElement.dataset.bbvtCommentFilterBypass === "true") {
+            if (isCommentBypassed(commentElement, blockResult)) {
                 revealCommentElement(commentElement, blockResult);
                 return false;
             }
@@ -6569,15 +6588,21 @@ function createBlockedRenderer() {
 }
 
 const commentFilterPlaceholders = new WeakMap();
+const commentFilterBypassKeys = new Set();
 
 function blockCommentElement(commentElement, blockResult) {
     injectCommentFilterStyles();
 
     const reason = blockResult.reason || blockResult.type || "命中评论规则";
+    const commentKey = getCommentBypassKey(commentElement, blockResult);
     const wasBlocked = commentElement.dataset.bbvtCommentBlocked === "true";
     const previousReason = commentElement.dataset.bbvtCommentBlockReason || "";
 
-    ensureCommentPlaceholder(commentElement, reason, "hidden");
+    if (commentKey) {
+        commentElement.dataset.bbvtCommentKey = commentKey;
+    }
+
+    ensureCommentPlaceholder(commentElement, { reason, commentKey }, "hidden");
 
     if (!Object.prototype.hasOwnProperty.call(commentElement.dataset, "bbvtCommentOriginalDisplay")) {
         commentElement.dataset.bbvtCommentOriginalDisplay = commentElement.style.display || "";
@@ -6594,26 +6619,36 @@ function revealCommentElement(commentElement, blockResult) {
     injectCommentFilterStyles();
 
     const reason = blockResult.reason || blockResult.type || commentElement.dataset.bbvtCommentBlockReason || "命中评论规则";
+    const commentKey = getCommentBypassKey(commentElement, blockResult);
     showCommentElement(commentElement);
+    if (commentKey) {
+        commentFilterBypassKeys.add(commentKey);
+        commentElement.dataset.bbvtCommentKey = commentKey;
+    }
     commentElement.dataset.bbvtCommentFilterBypass = "true";
-    ensureCommentPlaceholder(commentElement, reason, "revealed");
+    ensureCommentPlaceholder(commentElement, { reason, commentKey }, "revealed");
 }
 
-function ensureCommentPlaceholder(commentElement, reason, mode) {
+function ensureCommentPlaceholder(commentElement, { reason, commentKey = "" }, mode) {
     if (!commentElement.parentNode) {
         return;
     }
 
     let placeholder = commentFilterPlaceholders.get(commentElement);
     if (!placeholder || !placeholder.parentNode) {
-        placeholder = document.createElement("div");
-        placeholder.className = "bbvt-comment-filter-placeholder";
-        placeholder.dataset.bbvtCommentFilterPlaceholder = "true";
-        applyCommentPlaceholderStyles(placeholder);
+        placeholder = findReusableCommentPlaceholder(commentElement, commentKey);
+        if (!placeholder) {
+            placeholder = document.createElement("div");
+            placeholder.className = "bbvt-comment-filter-placeholder";
+            placeholder.dataset.bbvtCommentFilterPlaceholder = "true";
+            applyCommentPlaceholderStyles(placeholder);
+        }
         commentFilterPlaceholders.set(commentElement, placeholder);
         commentElement.parentNode.insertBefore(placeholder, commentElement);
     }
 
+    placeholder.dataset.bbvtCommentKey = commentKey || "";
+    removeDuplicateCommentPlaceholders(commentElement, placeholder, commentKey);
     placeholder.replaceChildren();
     const text = document.createElement("span");
     text.textContent = mode === "revealed"
@@ -6627,18 +6662,65 @@ function ensureCommentPlaceholder(commentElement, reason, mode) {
     toggleButton.type = "button";
     toggleButton.textContent = mode === "revealed" ? "重新隐藏" : "显示";
     applyCommentPlaceholderButtonStyles(toggleButton);
-    toggleButton.addEventListener("click", () => {
+    toggleButton.addEventListener("mousedown", stopCommentPlaceholderEvent);
+    toggleButton.addEventListener("click", (event) => {
+        stopCommentPlaceholderEvent(event);
         if (mode === "revealed") {
+            if (commentKey) {
+                commentFilterBypassKeys.delete(commentKey);
+            }
             delete commentElement.dataset.bbvtCommentFilterBypass;
-            blockCommentElement(commentElement, { reason });
+            blockCommentElement(commentElement, { reason, commentKey });
             return;
         }
 
-        revealCommentElement(commentElement, { reason });
+        revealCommentElement(commentElement, { reason, commentKey });
     });
 
     actions.append(toggleButton);
     placeholder.append(text, actions);
+}
+
+function findReusableCommentPlaceholder(commentElement, commentKey) {
+    if (!commentKey || !commentElement.parentNode?.querySelectorAll) {
+        return null;
+    }
+
+    return [...commentElement.parentNode.querySelectorAll(".bbvt-comment-filter-placeholder")]
+        .find((placeholder) => placeholder.dataset?.bbvtCommentKey === commentKey) || null;
+}
+
+function removeDuplicateCommentPlaceholders(commentElement, currentPlaceholder, commentKey) {
+    if (!commentKey || !commentElement.parentNode?.querySelectorAll) {
+        return;
+    }
+
+    commentElement.parentNode
+        .querySelectorAll(".bbvt-comment-filter-placeholder")
+        .forEach((placeholder) => {
+            if (placeholder !== currentPlaceholder && placeholder.dataset?.bbvtCommentKey === commentKey) {
+                placeholder.remove();
+            }
+        });
+}
+
+function removeCommentPlaceholdersForKey(commentElement, currentPlaceholder, commentKey) {
+    if (!commentKey || !commentElement.parentNode?.querySelectorAll) {
+        return;
+    }
+
+    commentElement.parentNode
+        .querySelectorAll(".bbvt-comment-filter-placeholder")
+        .forEach((placeholder) => {
+            if (placeholder === currentPlaceholder || placeholder.dataset?.bbvtCommentKey === commentKey) {
+                placeholder.remove();
+            }
+        });
+}
+
+function stopCommentPlaceholderEvent(event) {
+    event?.preventDefault?.();
+    event?.stopPropagation?.();
 }
 
 function applyCommentPlaceholderStyles(placeholder) {
@@ -6672,17 +6754,23 @@ function applyCommentPlaceholderButtonStyles(button) {
     });
 }
 
-function restoreCommentElement(commentElement, { keepBypass = false } = {}) {
+function restoreCommentElement(commentElement, { keepBypass = false, commentKey: restoreCommentKey = "" } = {}) {
+    const commentKey = getCommentBypassKey(commentElement, { commentKey: restoreCommentKey });
     const placeholder = commentFilterPlaceholders.get(commentElement);
     if (placeholder?.parentNode) {
         placeholder.remove();
     }
+    removeCommentPlaceholdersForKey(commentElement, placeholder, commentKey);
     commentFilterPlaceholders.delete(commentElement);
 
     showCommentElement(commentElement);
 
     if (!keepBypass) {
+        if (commentKey) {
+            commentFilterBypassKeys.delete(commentKey);
+        }
         delete commentElement.dataset.bbvtCommentFilterBypass;
+        delete commentElement.dataset.bbvtCommentKey;
     }
 }
 
@@ -6694,6 +6782,16 @@ function showCommentElement(commentElement) {
     delete commentElement.dataset.bbvtCommentBlocked;
     delete commentElement.dataset.bbvtCommentBlockReason;
     delete commentElement.dataset.bbvtCommentOriginalDisplay;
+}
+
+function isCommentBypassed(commentElement, blockResult) {
+    const commentKey = getCommentBypassKey(commentElement, blockResult);
+    return commentElement.dataset.bbvtCommentFilterBypass === "true" ||
+        Boolean(commentKey && commentFilterBypassKeys.has(commentKey));
+}
+
+function getCommentBypassKey(commentElement, blockResult) {
+    return String(blockResult.commentKey || commentElement.dataset.bbvtCommentKey || "").trim();
 }
 
 function injectCommentFilterStyles() {

@@ -56,7 +56,8 @@ export function mountCommentQuickBlock(context, commentElement, commentInfo) {
 
 function showCommentQuickBlockTrigger(commentElement) {
     const state = commentQuickBlockStates.get(commentElement);
-    if (!state || commentElement.style.display === "none") {
+    if (!state || commentElement.style.display === "none" || isCommentFilterManaged(commentElement)) {
+        hideCommentQuickBlockTrigger();
         return;
     }
 
@@ -75,6 +76,11 @@ function showCommentQuickBlockTrigger(commentElement) {
 
     positionTrigger(trigger, commentElement);
     trigger.hidden = false;
+}
+
+function isCommentFilterManaged(commentElement) {
+    return commentElement.dataset?.bbvtCommentBlocked === "true" ||
+        commentElement.dataset?.bbvtCommentFilterBypass === "true";
 }
 
 function ensureCommentQuickBlockTrigger() {

@@ -24,6 +24,7 @@ function setupDom() {
             this.textContent = "";
             this.type = "button";
             this.title = "";
+            this.dataset = {};
             this.parentNode = null;
             this.children = [];
             this.listeners = new Map();
@@ -167,5 +168,23 @@ describe("comment quick block master switch guard", () => {
         commentElement.dispatchEvent("mouseenter");
 
         assert.equal(document.getElementById("bbvtCommentQuickBlockTrigger")?.hidden, true);
+    });
+
+    it("does not show the trigger for a temporarily revealed filtered comment", () => {
+        setupDom();
+
+        const commentElement = document.createElement("div");
+        commentElement.dataset.bbvtCommentFilterBypass = "true";
+        document.body.appendChild(commentElement);
+
+        mountCommentQuickBlock(
+            { settingsStore: createSettingsStore(true) },
+            commentElement,
+            { text: "测试评论", userId: "1", userName: "用户" }
+        );
+
+        commentElement.dispatchEvent("mouseenter");
+
+        assert.equal(document.getElementById("bbvtCommentQuickBlockTrigger"), null);
     });
 });

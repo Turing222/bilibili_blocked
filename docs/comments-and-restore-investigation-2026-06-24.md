@@ -320,6 +320,23 @@
 
 这组验证项比继续泛泛地讨论“恢复有没有问题”更有价值。
 
+当前已补第一版自动化入口：
+
+```powershell
+npm.cmd run build
+npm.cmd run pw:comment-timing -- --video https://www.bilibili.com/video/BV1Vk7M6tEgx/
+```
+
+它会连接 `127.0.0.1:9223` 上的专用 Chrome，会把当前 `dist/bilibili_blocked_videos_by_tags.user.js` 注入页面，选取首条已渲染评论的一小段文本作为屏蔽关键词，然后验证：
+
+- 命中规则后评论隐藏并出现占位条
+- 点击“显示”后评论恢复且带 bypass
+- 触发一次 refresh 后仍保持显示
+- 点击“重新隐藏”后评论再次隐藏
+- 点击浮窗总开关关闭脚本后评论恢复、占位条消失
+
+运行结果会写到 `artifacts/playwright/comment-timing/<run-id>/result.json` 和 `events.jsonl`，用于后续比对时序变化。
+
 ---
 
 ## 建议的后续顺序
@@ -343,4 +360,3 @@
 相关已有说明文档：
 
 - `docs/capability-transparency.md`
-

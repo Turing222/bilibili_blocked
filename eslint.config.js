@@ -24,7 +24,9 @@ export default [
         files: ["tests/**/*.js"],
         languageOptions: {
             globals: {
-                ...globals.node
+                ...globals.node,
+                document: "readonly",
+                window: "readonly"
             }
         },
         rules: {

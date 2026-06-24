@@ -114,7 +114,8 @@ describe("commentFilterFeature", () => {
         });
 
         assert.equal(rendered[0].element, commentElement);
-        assert.deepEqual(rendered[0].blockResult, { blocked: false });
+        assert.equal(rendered[0].blockResult.blocked, false);
+        assert.ok(rendered[0].blockResult.commentKey.includes("这是一条广告评论"));
     });
 
     it("blocks rendered comments whose user matches the configured rules", () => {
