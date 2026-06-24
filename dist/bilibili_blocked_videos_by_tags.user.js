@@ -6183,6 +6183,10 @@ function isFilterableCommentElement(element) {
         return false;
     }
 
+    if (element.closest?.(".bbvt-comment-filter-overlay")) {
+        return false;
+    }
+
     return Boolean(readCommentText(element) || hasCommentContentImage(element, getCommentContentElement(element)));
 }
 
@@ -6344,7 +6348,15 @@ function isCommentFilterOwnedNode(node) {
         return true;
     }
 
+    if (node.classList?.contains("bbvt-comment-filter-overlay")) {
+        return true;
+    }
+
     if (node.dataset?.bbvtCommentFilterPlaceholder !== undefined) {
+        return true;
+    }
+
+    if (node.dataset?.bbvtCommentFilterOverlay !== undefined) {
         return true;
     }
 
@@ -6352,12 +6364,13 @@ function isCommentFilterOwnedNode(node) {
         node.dataset?.bbvtCommentBlocked !== undefined ||
         node.dataset?.bbvtCommentBlockReason !== undefined ||
         node.dataset?.bbvtCommentFilterBypass !== undefined ||
-        node.dataset?.bbvtCommentOriginalDisplay !== undefined
+        node.dataset?.bbvtCommentOriginalDisplay !== undefined ||
+        node.dataset?.bbvtCommentOriginalVisibility !== undefined
     ) {
         return true;
     }
 
-    return Boolean(node.closest?.(".bbvt-comment-filter-placeholder"));
+    return Boolean(node.closest?.(".bbvt-comment-filter-placeholder, .bbvt-comment-filter-overlay"));
 }
 
 function collectMatches(root, selector, results, visitedShadowRoots) {
@@ -6413,6 +6426,10 @@ function collectText(node, parts, visitedShadowRoots) {
         }
 
         if (node.classList?.contains("bbvt-comment-filter-placeholder")) {
+            return;
+        }
+
+        if (node.classList?.contains("bbvt-comment-filter-overlay")) {
             return;
         }
 
@@ -6597,11 +6614,11 @@ function createBlockedRenderer() {
     };
 }
 
-const commentFilterPlaceholders = new WeakMap();
+const commentFilterOverlays = new WeakMap();
 const commentFilterBypassKeys = new Set();
 
 function blockCommentElement(commentElement, blockResult) {
-    injectCommentFilterStyles();
+    injectCommentFilterStyles(commentElement);
 
     const reason = blockResult.reason || blockResult.type || "命中评论规则";
     const commentKey = getCommentBypassKey(commentElement, blockResult);
@@ -6612,69 +6629,81 @@ function blockCommentElement(commentElement, blockResult) {
         commentElement.dataset.bbvtCommentKey = commentKey;
     }
 
-    ensureCommentPlaceholder(commentElement, { reason, commentKey }, "hidden");
+    ensureCommentOverlay(commentElement, { reason, commentKey }, "hidden");
 
     if (!Object.prototype.hasOwnProperty.call(commentElement.dataset, "bbvtCommentOriginalDisplay")) {
         commentElement.dataset.bbvtCommentOriginalDisplay = commentElement.style.display || "";
     }
+    if (!Object.prototype.hasOwnProperty.call(commentElement.dataset, "bbvtCommentOriginalVisibility")) {
+        commentElement.dataset.bbvtCommentOriginalVisibility = commentElement.style.visibility || "";
+    }
 
-    commentElement.style.display = "none";
     commentElement.dataset.bbvtCommentBlocked = "true";
     commentElement.dataset.bbvtCommentBlockReason = reason;
+
+    if (isCommentPeeking(commentElement)) {
+        showCommentElement(commentElement, { keepBlockState: true });
+    } else {
+        hideCommentElementForOverlay(commentElement);
+    }
 
     return !wasBlocked || previousReason !== reason;
 }
 
 function revealCommentElement(commentElement, blockResult) {
-    injectCommentFilterStyles();
+    injectCommentFilterStyles(commentElement);
 
     const reason = blockResult.reason || blockResult.type || commentElement.dataset.bbvtCommentBlockReason || "命中评论规则";
     const commentKey = getCommentBypassKey(commentElement, blockResult);
+    clearCommentPeekState(commentElement);
     showCommentElement(commentElement);
     if (commentKey) {
         commentFilterBypassKeys.add(commentKey);
         commentElement.dataset.bbvtCommentKey = commentKey;
     }
     commentElement.dataset.bbvtCommentFilterBypass = "true";
-    ensureCommentPlaceholder(commentElement, { reason, commentKey }, "revealed");
+    ensureCommentOverlay(commentElement, { reason, commentKey }, "revealed");
 }
 
-function ensureCommentPlaceholder(commentElement, { reason, commentKey = "" }, mode) {
+function ensureCommentOverlay(commentElement, { reason, commentKey = "" }, mode) {
     if (!commentElement.parentNode) {
         return;
     }
 
-    let placeholder = commentFilterPlaceholders.get(commentElement);
-    if (!placeholder || !placeholder.parentNode) {
-        placeholder = findReusableCommentPlaceholder(commentElement, commentKey);
-        if (!placeholder) {
-            placeholder = document.createElement("div");
-            placeholder.className = "bbvt-comment-filter-placeholder";
-            placeholder.dataset.bbvtCommentFilterPlaceholder = "true";
-            applyCommentPlaceholderStyles(placeholder);
+    ensureCommentOverlayParent(commentElement.parentNode);
+
+    let overlay = commentFilterOverlays.get(commentElement);
+    if (!overlay || !overlay.parentNode) {
+        overlay = findReusableCommentOverlay(commentElement, commentKey);
+        if (!overlay) {
+            overlay = document.createElement("div");
+            overlay.className = "bbvt-comment-filter-overlay";
+            overlay.dataset.bbvtCommentFilterOverlay = "true";
         }
-        commentFilterPlaceholders.set(commentElement, placeholder);
-        commentElement.parentNode.insertBefore(placeholder, commentElement);
+        commentFilterOverlays.set(commentElement, overlay);
+        commentElement.parentNode.insertBefore(overlay, commentElement);
     }
 
-    placeholder.dataset.bbvtCommentKey = commentKey || "";
-    removeDuplicateCommentPlaceholders(commentElement, placeholder, commentKey);
-    placeholder.replaceChildren();
+    overlay.dataset.bbvtCommentKey = commentKey || "";
+    overlay.dataset.bbvtCommentFilterMode = mode;
+    positionCommentOverlay(commentElement, overlay, mode);
+    removeDuplicateCommentOverlays(commentElement, overlay, commentKey);
+    overlay.replaceChildren();
     const text = document.createElement("span");
+    text.className = "bbvt-comment-filter-overlay-text";
     text.textContent = mode === "revealed"
-        ? `已临时显示：${reason}`
-        : `已隐藏评论：${reason}`;
+        ? `已显示：${reason}`
+        : `已屏蔽评论：${reason}`;
 
     const actions = document.createElement("div");
-    actions.className = "bbvt-comment-filter-actions";
+    actions.className = "bbvt-comment-filter-overlay-actions";
 
     const toggleButton = document.createElement("button");
     toggleButton.type = "button";
     toggleButton.textContent = mode === "revealed" ? "重新隐藏" : "显示";
-    applyCommentPlaceholderButtonStyles(toggleButton);
-    toggleButton.addEventListener("mousedown", stopCommentPlaceholderEvent);
+    toggleButton.addEventListener("mousedown", stopCommentOverlayEvent);
     toggleButton.addEventListener("click", (event) => {
-        stopCommentPlaceholderEvent(event);
+        stopCommentOverlayEvent(event);
         if (mode === "revealed") {
             if (commentKey) {
                 commentFilterBypassKeys.delete(commentKey);
@@ -6687,92 +6716,110 @@ function ensureCommentPlaceholder(commentElement, { reason, commentKey = "" }, m
         revealCommentElement(commentElement, { reason, commentKey });
     });
 
+    if (mode === "hidden") {
+        if (isCommentPeeking(commentElement)) {
+            overlay.dataset.bbvtCommentFilterPeeking = "true";
+        } else {
+            delete overlay.dataset.bbvtCommentFilterPeeking;
+        }
+
+        overlay.onmousemove = (event) => {
+            if (isCommentOverlayActionTarget(event?.target)) {
+                return;
+            }
+            peekCommentElement(commentElement, overlay);
+        };
+        overlay.onmouseleave = () => {
+            endCommentOverlayPeek(commentElement, overlay);
+        };
+    } else {
+        clearCommentPeekState(commentElement, overlay);
+        overlay.onmousemove = null;
+        overlay.onmouseleave = null;
+    }
+
     actions.append(toggleButton);
-    placeholder.append(text, actions);
+    overlay.append(text, actions);
 }
 
-function findReusableCommentPlaceholder(commentElement, commentKey) {
+function ensureCommentOverlayParent(parent) {
+    const position = parent.nodeType === 1 && typeof getComputedStyle === "function"
+        ? getComputedStyle(parent).position
+        : parent.style?.position;
+    if (parent.style && (!position || position === "static")) {
+        parent.dataset.bbvtCommentOverlayParent = "true";
+        parent.style.position = "relative";
+    }
+}
+
+function positionCommentOverlay(commentElement, overlay, mode) {
+    const width = commentElement.offsetWidth || commentElement.getBoundingClientRect?.().width || 0;
+    const height = commentElement.offsetHeight || commentElement.getBoundingClientRect?.().height || 0;
+
+    Object.assign(overlay.style, {
+        position: "absolute",
+        left: `${commentElement.offsetLeft || 0}px`,
+        top: `${commentElement.offsetTop || 0}px`,
+        width: width ? `${width}px` : "100%",
+        minHeight: mode === "revealed" ? "0" : `${Math.max(44, height)}px`,
+        height: mode === "revealed" ? "auto" : `${Math.max(44, height)}px`,
+        boxSizing: "border-box",
+        zIndex: "20",
+    });
+}
+
+function findReusableCommentOverlay(commentElement, commentKey) {
     if (!commentKey || !commentElement.parentNode?.querySelectorAll) {
         return null;
     }
 
-    return [...commentElement.parentNode.querySelectorAll(".bbvt-comment-filter-placeholder")]
-        .find((placeholder) => placeholder.dataset?.bbvtCommentKey === commentKey) || null;
+    return [...commentElement.parentNode.querySelectorAll(".bbvt-comment-filter-overlay")]
+        .find((overlay) => overlay.dataset?.bbvtCommentKey === commentKey) || null;
 }
 
-function removeDuplicateCommentPlaceholders(commentElement, currentPlaceholder, commentKey) {
+function removeDuplicateCommentOverlays(commentElement, currentOverlay, commentKey) {
     if (!commentKey || !commentElement.parentNode?.querySelectorAll) {
         return;
     }
 
     commentElement.parentNode
-        .querySelectorAll(".bbvt-comment-filter-placeholder")
-        .forEach((placeholder) => {
-            if (placeholder !== currentPlaceholder && placeholder.dataset?.bbvtCommentKey === commentKey) {
-                placeholder.remove();
+        .querySelectorAll(".bbvt-comment-filter-overlay")
+        .forEach((overlay) => {
+            if (overlay !== currentOverlay && overlay.dataset?.bbvtCommentKey === commentKey) {
+                overlay.remove();
             }
         });
 }
 
-function removeCommentPlaceholdersForKey(commentElement, currentPlaceholder, commentKey) {
+function removeCommentOverlaysForKey(commentElement, currentOverlay, commentKey) {
     if (!commentKey || !commentElement.parentNode?.querySelectorAll) {
         return;
     }
 
     commentElement.parentNode
-        .querySelectorAll(".bbvt-comment-filter-placeholder")
-        .forEach((placeholder) => {
-            if (placeholder === currentPlaceholder || placeholder.dataset?.bbvtCommentKey === commentKey) {
-                placeholder.remove();
+        .querySelectorAll(".bbvt-comment-filter-overlay")
+        .forEach((overlay) => {
+            if (overlay === currentOverlay || overlay.dataset?.bbvtCommentKey === commentKey) {
+                overlay.remove();
             }
         });
 }
 
-function stopCommentPlaceholderEvent(event) {
+function stopCommentOverlayEvent(event) {
     event?.preventDefault?.();
     event?.stopPropagation?.();
 }
 
-function applyCommentPlaceholderStyles(placeholder) {
-    Object.assign(placeholder.style, {
-        display: "flex",
-        alignItems: "center",
-        justifyContent: "space-between",
-        gap: "10px",
-        boxSizing: "border-box",
-        margin: "8px 0",
-        padding: "9px 12px",
-        border: "1px solid rgba(0, 174, 236, 0.22)",
-        borderRadius: "8px",
-        background: "rgba(0, 174, 236, 0.08)",
-        color: "rgb(80, 80, 80)",
-        fontSize: "12px",
-        lineHeight: "1.45",
-    });
-}
-
-function applyCommentPlaceholderButtonStyles(button) {
-    Object.assign(button.style, {
-        flex: "0 0 auto",
-        border: "0",
-        borderRadius: "6px",
-        background: "rgba(0, 174, 236, 0.16)",
-        color: "rgb(0, 120, 180)",
-        padding: "4px 9px",
-        cursor: "pointer",
-        fontSize: "12px",
-    });
-}
-
 function restoreCommentElement(commentElement, { keepBypass = false, commentKey: restoreCommentKey = "" } = {}) {
     const commentKey = getCommentBypassKey(commentElement, { commentKey: restoreCommentKey });
-    const placeholder = commentFilterPlaceholders.get(commentElement);
-    if (placeholder?.parentNode) {
-        placeholder.remove();
+    const overlay = commentFilterOverlays.get(commentElement);
+    if (overlay?.parentNode) {
+        overlay.remove();
     }
-    removeCommentPlaceholdersForKey(commentElement, placeholder, commentKey);
-    commentFilterPlaceholders.delete(commentElement);
+    removeCommentOverlaysForKey(commentElement, overlay, commentKey);
+    commentFilterOverlays.delete(commentElement);
 
+    clearCommentPeekState(commentElement, overlay);
     showCommentElement(commentElement);
 
     if (!keepBypass) {
@@ -6784,14 +6831,75 @@ function restoreCommentElement(commentElement, { keepBypass = false, commentKey:
     }
 }
 
-function showCommentElement(commentElement) {
+function showCommentElement(commentElement, { keepBlockState = false } = {}) {
     if (Object.prototype.hasOwnProperty.call(commentElement.dataset, "bbvtCommentOriginalDisplay")) {
         commentElement.style.display = commentElement.dataset.bbvtCommentOriginalDisplay;
+    }
+    if (Object.prototype.hasOwnProperty.call(commentElement.dataset, "bbvtCommentOriginalVisibility")) {
+        commentElement.style.visibility = commentElement.dataset.bbvtCommentOriginalVisibility;
+    } else {
+        commentElement.style.visibility = "";
+    }
+
+    if (keepBlockState) {
+        return;
     }
 
     delete commentElement.dataset.bbvtCommentBlocked;
     delete commentElement.dataset.bbvtCommentBlockReason;
     delete commentElement.dataset.bbvtCommentOriginalDisplay;
+    delete commentElement.dataset.bbvtCommentOriginalVisibility;
+}
+
+function hideCommentElementForOverlay(commentElement) {
+    commentElement.style.visibility = "hidden";
+}
+
+function peekCommentElement(commentElement, overlay) {
+    if (commentElement.dataset.bbvtCommentFilterBypass === "true") {
+        return;
+    }
+
+    commentElement.dataset.bbvtCommentFilterPeeking = "true";
+    overlay.dataset.bbvtCommentFilterPeeking = "true";
+    showCommentElement(commentElement, { keepBlockState: true });
+}
+
+function endCommentOverlayPeek(commentElement, overlay) {
+    if (!isCommentPeeking(commentElement)) {
+        return;
+    }
+
+    clearCommentPeekState(commentElement, overlay);
+    if (commentElement.dataset.bbvtCommentBlocked === "true") {
+        hideCommentElementForOverlay(commentElement);
+    }
+}
+
+function clearCommentPeekState(commentElement, overlay = commentFilterOverlays.get(commentElement)) {
+    delete commentElement.dataset.bbvtCommentFilterPeeking;
+    if (overlay) {
+        delete overlay.dataset.bbvtCommentFilterPeeking;
+    }
+}
+
+function isCommentPeeking(commentElement) {
+    return commentElement.dataset.bbvtCommentFilterPeeking === "true";
+}
+
+function isCommentOverlayActionTarget(target) {
+    if (target?.closest?.(".bbvt-comment-filter-overlay-actions")) {
+        return true;
+    }
+
+    let node = target;
+    while (node && typeof node === "object") {
+        if (node.classList?.contains("bbvt-comment-filter-overlay-actions")) {
+            return true;
+        }
+        node = node.parentNode;
+    }
+    return false;
 }
 
 function isCommentBypassed(commentElement, blockResult) {
@@ -6804,44 +6912,66 @@ function getCommentBypassKey(commentElement, blockResult) {
     return String(blockResult.commentKey || commentElement.dataset.bbvtCommentKey || "").trim();
 }
 
-function injectCommentFilterStyles() {
-    if (document.getElementById("bbvtCommentFilterStyles")) {
-        return;
-    }
-
+function injectCommentFilterStyles(commentElement) {
     const css = `
-        .bbvt-comment-filter-placeholder {
+        .bbvt-comment-filter-overlay {
             display: flex;
             align-items: center;
             justify-content: space-between;
             gap: 10px;
             box-sizing: border-box;
-            margin: 8px 0;
-            padding: 9px 12px;
-            border: 1px solid rgba(0, 174, 236, 0.22);
+            padding: 10px 12px;
+            border: 1px solid rgba(0, 174, 236, 0.28);
             border-radius: 8px;
-            background: rgba(0, 174, 236, 0.08);
-            color: rgb(80, 80, 80);
+            background: rgba(28, 32, 36, 0.88);
+            color: rgb(245, 245, 245);
             font-size: 12px;
             line-height: 1.45;
+            box-shadow: 0 8px 24px rgba(0, 0, 0, 0.16);
+            backdrop-filter: blur(5px);
+            -webkit-backdrop-filter: blur(5px);
+            transition: opacity 0.16s ease, background 0.16s ease, border-color 0.16s ease, color 0.16s ease;
+            overflow: hidden;
         }
 
-        .bbvt-comment-filter-placeholder button {
+        .bbvt-comment-filter-overlay[data-bbvt-comment-filter-mode="hidden"][data-bbvt-comment-filter-peeking="true"] {
+            opacity: 0;
+            backdrop-filter: none;
+            -webkit-backdrop-filter: none;
+        }
+
+        .bbvt-comment-filter-overlay[data-bbvt-comment-filter-mode="revealed"] {
+            align-items: center;
+            background: rgba(0, 174, 236, 0.12);
+            color: rgb(40, 40, 40);
+            box-shadow: none;
+            backdrop-filter: blur(3px);
+            -webkit-backdrop-filter: blur(3px);
+        }
+
+        .bbvt-comment-filter-overlay-text {
+            min-width: 0;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+        }
+
+        .bbvt-comment-filter-overlay button {
             flex: 0 0 auto;
             border: 0;
             border-radius: 6px;
-            background: rgba(0, 174, 236, 0.16);
-            color: rgb(0, 120, 180);
+            background: rgba(0, 174, 236, 0.88);
+            color: white;
             padding: 4px 9px;
             cursor: pointer;
             font-size: 12px;
         }
 
-        .bbvt-comment-filter-placeholder button:hover {
-            background: rgba(0, 174, 236, 0.28);
+        .bbvt-comment-filter-overlay button:hover {
+            background: rgb(0, 190, 255);
         }
 
-        .bbvt-comment-filter-actions {
+        .bbvt-comment-filter-overlay-actions {
             display: inline-flex;
             align-items: center;
             gap: 6px;
@@ -6849,15 +6979,20 @@ function injectCommentFilterStyles() {
         }
     `;
 
-    if (typeof GM_addStyle === "function") {
-        GM_addStyle(css);
+    const root = commentElement?.getRootNode?.() || document;
+    const styleHost = root?.head || root;
+    if (!styleHost?.appendChild) {
+        return;
+    }
+
+    if (root.getElementById?.("bbvtCommentFilterStyles") || root.querySelector?.("#bbvtCommentFilterStyles")) {
         return;
     }
 
     const style = document.createElement("style");
     style.id = "bbvtCommentFilterStyles";
     style.textContent = css;
-    document.head.appendChild(style);
+    styleHost.appendChild(style);
 }
 
 function isHiddenOrOverlayed(videoElement) {
@@ -9342,11 +9477,19 @@ function isScriptOwnedNode(node) {
         return true;
     }
 
+    if (node.classList?.contains("bbvt-comment-filter-overlay")) {
+        return true;
+    }
+
     if (node.dataset?.bbvtBlocked !== undefined) {
         return true;
     }
 
-    if (node.dataset?.bbvtCommentBlocked !== undefined || node.dataset?.bbvtCommentFilterPlaceholder !== undefined) {
+    if (
+        node.dataset?.bbvtCommentBlocked !== undefined ||
+        node.dataset?.bbvtCommentFilterPlaceholder !== undefined ||
+        node.dataset?.bbvtCommentFilterOverlay !== undefined
+    ) {
         return true;
     }
 

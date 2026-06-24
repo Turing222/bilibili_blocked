@@ -27,10 +27,10 @@ describe("comment renderer bypass state", () => {
         };
 
         assert.equal(renderer.renderCommentBlockedState(firstComment, blockResult), true);
-        assert.equal(firstComment.style.display, "none");
+        assert.equal(firstComment.style.visibility, "hidden");
 
         parent.querySelector("button").click();
-        assert.equal(firstComment.style.display, "");
+        assert.equal(firstComment.style.visibility, "");
         assert.equal(firstComment.dataset.bbvtCommentFilterBypass, "true");
         assert.equal(parent.querySelector("button").textContent, "重新隐藏");
 
@@ -44,7 +44,47 @@ describe("comment renderer bypass state", () => {
         assert.equal(parent.querySelector("button").textContent, "重新隐藏");
     });
 
-    it("rebinds the placeholder action when a revealed comment node is replaced", () => {
+    it("reveals a blocked comment while moving across the overlay body", () => {
+        setupDom();
+
+        const renderer = createBlockedRenderer();
+        const parent = document.createElement("div");
+        document.body.appendChild(parent);
+
+        const comment = document.createElement("bili-comment-renderer");
+        parent.appendChild(comment);
+
+        renderer.renderCommentBlockedState(comment, {
+            blocked: true,
+            reason: "按评论内容屏蔽: test",
+            commentKey: JSON.stringify(["hover", "user", "comment text"]),
+        });
+
+        const overlay = parent.querySelector(".bbvt-comment-filter-overlay");
+        const actions = overlay.querySelector(".bbvt-comment-filter-overlay-actions");
+        assert.equal(comment.style.visibility, "hidden");
+
+        overlay.onmousemove({ target: actions });
+        assert.equal(comment.style.visibility, "hidden");
+
+        overlay.onmousemove({ target: overlay });
+        assert.equal(comment.style.visibility, "");
+        assert.equal(overlay.dataset.bbvtCommentFilterPeeking, "true");
+
+        renderer.renderCommentBlockedState(comment, {
+            blocked: true,
+            reason: "按评论内容屏蔽: test",
+            commentKey: JSON.stringify(["hover", "user", "comment text"]),
+        });
+        assert.equal(comment.style.visibility, "");
+        assert.equal(overlay.dataset.bbvtCommentFilterPeeking, "true");
+
+        overlay.onmouseleave();
+        assert.equal(comment.style.visibility, "hidden");
+        assert.equal(overlay.dataset.bbvtCommentFilterPeeking, undefined);
+    });
+
+    it("rebinds the overlay action when a revealed comment node is replaced", () => {
         setupDom();
 
         const renderer = createBlockedRenderer();
@@ -62,7 +102,7 @@ describe("comment renderer bypass state", () => {
 
         renderer.renderCommentBlockedState(firstComment, blockResult);
         parent.querySelector("button").click();
-        assert.equal(parent.querySelectorAll(".bbvt-comment-filter-placeholder").length, 1);
+        assert.equal(parent.querySelectorAll(".bbvt-comment-filter-overlay").length, 1);
 
         firstComment.remove();
         const replacementComment = document.createElement("bili-comment-renderer");
@@ -70,14 +110,14 @@ describe("comment renderer bypass state", () => {
 
         renderer.renderCommentBlockedState(replacementComment, blockResult);
 
-        assert.equal(parent.querySelectorAll(".bbvt-comment-filter-placeholder").length, 1);
+        assert.equal(parent.querySelectorAll(".bbvt-comment-filter-overlay").length, 1);
         assert.equal(parent.querySelector("button").textContent, "重新隐藏");
 
         parent.querySelector("button").click();
 
-        assert.equal(replacementComment.style.display, "none");
+        assert.equal(replacementComment.style.visibility, "hidden");
         assert.equal(replacementComment.dataset.bbvtCommentBlocked, "true");
-        assert.equal(parent.querySelectorAll(".bbvt-comment-filter-placeholder").length, 1);
+        assert.equal(parent.querySelectorAll(".bbvt-comment-filter-overlay").length, 1);
         assert.equal(parent.querySelector("button").textContent, "显示");
     });
 });
@@ -198,8 +238,12 @@ function matchesSelector(element, selector) {
         return element.tagName === "BUTTON";
     }
 
-    if (selector === ".bbvt-comment-filter-placeholder") {
-        return element.classList.contains("bbvt-comment-filter-placeholder");
+    if (selector === ".bbvt-comment-filter-overlay") {
+        return element.classList.contains("bbvt-comment-filter-overlay");
+    }
+
+    if (selector === ".bbvt-comment-filter-overlay-actions") {
+        return element.classList.contains("bbvt-comment-filter-overlay-actions");
     }
 
     return false;

@@ -563,6 +563,10 @@ function isFilterableCommentElement(element) {
         return false;
     }
 
+    if (element.closest?.(".bbvt-comment-filter-overlay")) {
+        return false;
+    }
+
     return Boolean(readCommentText(element) || hasCommentContentImage(element, getCommentContentElement(element)));
 }
 
@@ -724,7 +728,15 @@ function isCommentFilterOwnedNode(node) {
         return true;
     }
 
+    if (node.classList?.contains("bbvt-comment-filter-overlay")) {
+        return true;
+    }
+
     if (node.dataset?.bbvtCommentFilterPlaceholder !== undefined) {
+        return true;
+    }
+
+    if (node.dataset?.bbvtCommentFilterOverlay !== undefined) {
         return true;
     }
 
@@ -732,12 +744,13 @@ function isCommentFilterOwnedNode(node) {
         node.dataset?.bbvtCommentBlocked !== undefined ||
         node.dataset?.bbvtCommentBlockReason !== undefined ||
         node.dataset?.bbvtCommentFilterBypass !== undefined ||
-        node.dataset?.bbvtCommentOriginalDisplay !== undefined
+        node.dataset?.bbvtCommentOriginalDisplay !== undefined ||
+        node.dataset?.bbvtCommentOriginalVisibility !== undefined
     ) {
         return true;
     }
 
-    return Boolean(node.closest?.(".bbvt-comment-filter-placeholder"));
+    return Boolean(node.closest?.(".bbvt-comment-filter-placeholder, .bbvt-comment-filter-overlay"));
 }
 
 function collectMatches(root, selector, results, visitedShadowRoots) {
@@ -793,6 +806,10 @@ function collectText(node, parts, visitedShadowRoots) {
         }
 
         if (node.classList?.contains("bbvt-comment-filter-placeholder")) {
+            return;
+        }
+
+        if (node.classList?.contains("bbvt-comment-filter-overlay")) {
             return;
         }
 

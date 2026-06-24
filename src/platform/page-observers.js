@@ -32,11 +32,19 @@ function isScriptOwnedNode(node) {
         return true;
     }
 
+    if (node.classList?.contains("bbvt-comment-filter-overlay")) {
+        return true;
+    }
+
     if (node.dataset?.bbvtBlocked !== undefined) {
         return true;
     }
 
-    if (node.dataset?.bbvtCommentBlocked !== undefined || node.dataset?.bbvtCommentFilterPlaceholder !== undefined) {
+    if (
+        node.dataset?.bbvtCommentBlocked !== undefined ||
+        node.dataset?.bbvtCommentFilterPlaceholder !== undefined ||
+        node.dataset?.bbvtCommentFilterOverlay !== undefined
+    ) {
         return true;
     }
 

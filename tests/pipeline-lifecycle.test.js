@@ -85,10 +85,10 @@ function createPipelineContext(overrides = {}) {
     return context;
 }
 
-function mockOverlayNode() {
+function mockOverlayNode(className = "blockedOverlay") {
     return {
         classList: {
-            contains: (name) => name === "blockedOverlay",
+            contains: (name) => name === className,
         },
         dataset: {},
         closest: () => null,
@@ -303,6 +303,18 @@ describe("shouldIgnoreMutationRecords", () => {
             {
                 type: "childList",
                 addedNodes: [mockOverlayNode()],
+                removedNodes: [],
+            },
+        ];
+
+        assert.equal(shouldIgnoreMutationRecords(records, false), true);
+    });
+
+    it("ignores mutations that only touch comment filter overlay nodes", () => {
+        const records = [
+            {
+                type: "childList",
+                addedNodes: [mockOverlayNode("bbvt-comment-filter-overlay")],
                 removedNodes: [],
             },
         ];
