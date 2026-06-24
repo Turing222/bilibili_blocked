@@ -44,14 +44,26 @@ export const commentFilterFeature = {
             resetRetry();
         }
 
+        const blockedTargets = new Set();
         commentElements.forEach((commentElement) => {
+            if (isInsideBlockedCommentTarget(commentElement, blockedTargets)) {
+                return;
+            }
+
             const commentInfo = domAdapter.readCommentInfo(commentElement);
             const blockResult = getCommentBlockResult(settings, commentInfo);
             blockResult.commentKey = getCommentKey(commentInfo);
+            const blockTarget = domAdapter.getCommentBlockTarget?.(commentElement, commentInfo, blockResult) || commentElement;
 
             mountCommentQuickBlock(context, commentElement, commentInfo);
 
-            const changedToBlocked = renderer.renderCommentBlockedState(commentElement, blockResult);
+            const changedToBlocked = renderer.renderCommentBlockedState(blockTarget, blockResult, {
+                mode: settings.hideCommentMode_Switch ? "hide" : "overlay",
+                sourceElement: commentElement,
+            });
+            if (blockResult.blocked) {
+                blockedTargets.add(blockTarget);
+            }
             if (changedToBlocked && blockResult.item) {
                 statsStore?.increment(`${blockResult.type}: ${blockResult.item}`);
             }
@@ -65,6 +77,16 @@ function hasEnabledCommentRules(settings) {
         (settings.blockedCommentText_Switch && settings.blockedCommentText_Array?.length > 0) ||
         settings.blockedCommentImage_Switch
     );
+}
+
+function isInsideBlockedCommentTarget(commentElement, blockedTargets) {
+    for (const target of blockedTargets) {
+        if (target !== commentElement && target?.contains?.(commentElement)) {
+            return true;
+        }
+    }
+
+    return false;
 }
 
 function getCommentBlockResult(settings, commentInfo) {

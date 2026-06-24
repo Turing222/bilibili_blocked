@@ -232,6 +232,10 @@ export function createBilibiliDomAdapter() {
             };
         },
 
+        getCommentBlockTarget(commentElement) {
+            return getCommentBlockTarget(commentElement);
+        },
+
         observeCommentChanges(callback) {
             observeCommentShadowRoots(callback);
         },
@@ -286,6 +290,55 @@ function readCommentText(commentElement) {
 
 function getCommentContentElement(commentElement) {
     return querySelectorDeep(commentElement, commentContentSelectors.join(","));
+}
+
+function getCommentBlockTarget(commentElement) {
+    if (isSubCommentElement(commentElement)) {
+        return commentElement;
+    }
+
+    return closestComposed(
+        commentElement,
+        [
+            "bili-comment-thread-renderer",
+            "div.reply-item",
+            "div.reply-wrap",
+            "div.comment-list-item",
+        ]
+    ) || commentElement;
+}
+
+function isSubCommentElement(commentElement) {
+    const tagName = commentElement?.tagName?.toLowerCase?.() || "";
+    const className = String(commentElement?.className || "");
+    return tagName === "bili-comment-reply-renderer" ||
+        commentElement?.classList?.contains?.("sub-reply-item") ||
+        className.split(/\s+/).includes("sub-reply-item");
+}
+
+function closestComposed(element, selectors) {
+    let current = element;
+    while (current) {
+        if (current.nodeType === 1 && selectors.some((selector) => current.matches?.(selector))) {
+            return current;
+        }
+
+        current = getComposedParent(current);
+    }
+
+    return null;
+}
+
+function getComposedParent(node) {
+    if (node?.parentElement) {
+        return node.parentElement;
+    }
+
+    if (node?.parentNode?.host) {
+        return node.parentNode.host;
+    }
+
+    return node?.parentNode?.nodeType === 1 ? node.parentNode : null;
 }
 
 function readCommentDataText(commentElement) {
@@ -743,7 +796,7 @@ function isCommentFilterOwnedNode(node) {
     if (
         node.dataset?.bbvtCommentBlocked !== undefined ||
         node.dataset?.bbvtCommentBlockReason !== undefined ||
-        node.dataset?.bbvtCommentFilterBypass !== undefined ||
+        node.dataset?.bbvtCommentBlockMode !== undefined ||
         node.dataset?.bbvtCommentOriginalDisplay !== undefined ||
         node.dataset?.bbvtCommentOriginalVisibility !== undefined
     ) {

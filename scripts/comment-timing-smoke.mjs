@@ -291,7 +291,6 @@ async function collectCommentTimingState(page, keyword) {
 
     const targetElement = target?.element ?? null;
     const placeholder = matchingPlaceholder || (targetElement ? getPlaceholderNearComment(targetElement) : null);
-    const placeholderButton = placeholder?.querySelector("button") ?? null;
     const floatingButton = document.querySelector("#bbvtFloatingEntry .bbvt-fe-main");
 
     return {
@@ -319,7 +318,7 @@ async function collectCommentTimingState(page, keyword) {
             visibility: targetElement.style.visibility || "",
             computedVisibility: getComputedStyle(targetElement).visibility,
             blocked: targetElement.dataset.bbvtCommentBlocked === "true",
-            bypass: targetElement.dataset.bbvtCommentFilterBypass === "true",
+            blockMode: targetElement.dataset.bbvtCommentBlockMode || "",
             reason: targetElement.dataset.bbvtCommentBlockReason || "",
             originalDisplayStored: Object.prototype.hasOwnProperty.call(
               targetElement.dataset,
@@ -327,7 +326,6 @@ async function collectCommentTimingState(page, keyword) {
             ),
             placeholderFound: Boolean(placeholder),
             placeholderText: clean(placeholder?.textContent),
-            placeholderButtonText: clean(placeholderButton?.textContent),
           }
         : null,
     };
@@ -354,6 +352,7 @@ function createTimingSettings(keyword) {
     blockedCommentUser_Switch: false,
     blockedCommentUser_Array: [],
     blockedCommentImage_Switch: false,
+    hideCommentMode_Switch: false,
     blockedFilteredCommentsVideo_Switch: false,
     blockedTopComment_Switch: false,
     blockedTopComment_Array: [],
@@ -431,49 +430,11 @@ function summarizeState(label, state) {
     floatingButtonText: state?.floatingButtonText ?? "",
     targetFound: Boolean(state?.target),
     targetBlocked: Boolean(state?.target?.blocked),
-    targetBypass: Boolean(state?.target?.bypass),
+    targetBlockMode: state?.target?.blockMode ?? "",
     targetDisplay: state?.target?.computedDisplay ?? "",
     targetVisibility: state?.target?.computedVisibility ?? "",
-    placeholderButtonText: state?.target?.placeholderButtonText ?? "",
     placeholderText: cleanText(state?.target?.placeholderText, 160),
   };
-}
-
-async function clickPlaceholderButton(page, keyword, expectedText) {
-  return page.evaluate(({ targetKeyword, buttonText }) => {
-    function queryAllDeep(root, selector, visited = new WeakSet()) {
-      const results = [];
-      if (!root?.querySelectorAll) {
-        return results;
-      }
-      if (root.matches?.(selector)) {
-        results.push(root);
-      }
-      if (root.shadowRoot && !visited.has(root.shadowRoot)) {
-        visited.add(root.shadowRoot);
-        results.push(...queryAllDeep(root.shadowRoot, selector, visited));
-      }
-      results.push(...root.querySelectorAll(selector));
-      root.querySelectorAll("*").forEach((element) => {
-        if (element.shadowRoot && !visited.has(element.shadowRoot)) {
-          visited.add(element.shadowRoot);
-          results.push(...queryAllDeep(element.shadowRoot, selector, visited));
-        }
-      });
-      return [...new Set(results)];
-    }
-
-    const placeholders = queryAllDeep(document, ".bbvt-comment-filter-overlay");
-    const placeholder = placeholders.find((item) =>
-      item.textContent.includes(targetKeyword) && item.textContent.includes(buttonText)
-    );
-    const button = placeholder?.querySelector("button");
-    if (!button) {
-      return false;
-    }
-    button.click();
-    return true;
-  }, { targetKeyword: keyword, buttonText: expectedText });
 }
 
 async function moveAcrossPlaceholder(page, keyword) {
@@ -502,34 +463,28 @@ async function moveAcrossPlaceholder(page, keyword) {
 
     function readState(placeholder) {
       const target = placeholder?.nextElementSibling ?? null;
-      const button = placeholder?.querySelector("button") ?? null;
       return {
         found: Boolean(placeholder),
         targetVisibility: target ? getComputedStyle(target).visibility : "",
         overlayOpacity: placeholder ? getComputedStyle(placeholder).opacity : "",
         overlayPeeking: placeholder?.dataset.bbvtCommentFilterPeeking === "true",
         commentPeeking: target?.dataset.bbvtCommentFilterPeeking === "true",
-        buttonText: (button?.textContent || "").replace(/\s+/g, " ").trim(),
       };
     }
 
     const placeholders = queryAllDeep(document, ".bbvt-comment-filter-overlay");
     const placeholder = placeholders.find((item) => item.textContent.includes(targetKeyword)) || null;
-    const actions = placeholder?.querySelector(".bbvt-comment-filter-overlay-actions") ?? null;
     const moveEvent = () => new MouseEvent("mousemove", {
       bubbles: true,
       cancelable: true,
       view: window,
     });
 
-    actions?.dispatchEvent(moveEvent());
-    const afterActions = readState(placeholder);
-
     placeholder?.dispatchEvent(moveEvent());
     await new Promise((resolve) => setTimeout(resolve, 250));
     const afterBody = readState(placeholder);
 
-    return { afterActions, afterBody };
+    return { afterBody };
   }, keyword);
 }
 
@@ -653,16 +608,14 @@ async function runTiming(runDir, recorder) {
       (state) =>
         state.target?.blocked === true &&
         state.target?.computedVisibility === "hidden" &&
-        state.target?.placeholderButtonText === "显示",
+        state.target?.placeholderFound === true &&
+        state.target?.placeholderText.includes(keyword),
       recorder
     );
 
-    const showButtonText = hidden.target?.placeholderButtonText || "显示";
     const peeked = await moveAcrossPlaceholder(page, keyword);
     recorder.mark("ui.peek", peeked);
     if (
-      peeked.afterActions.targetVisibility !== "hidden" ||
-      peeked.afterActions.overlayPeeking ||
       peeked.afterBody.targetVisibility === "hidden" ||
       peeked.afterBody.overlayOpacity === "1" ||
       !peeked.afterBody.overlayPeeking ||
@@ -676,7 +629,7 @@ async function runTiming(runDir, recorder) {
     recorder.mark("ui.peek.refresh", summarizeState("comment peek after refresh", peekedAfterRefresh));
     if (
       peekedAfterRefresh.target?.computedVisibility === "hidden" ||
-      peekedAfterRefresh.target?.placeholderButtonText !== showButtonText
+      peekedAfterRefresh.target?.placeholderFound !== true
     ) {
       throw new Error("Comment overlay peek was lost after refresh.");
     }
@@ -694,54 +647,7 @@ async function runTiming(runDir, recorder) {
       (state) =>
         state.target?.blocked === true &&
         state.target?.computedVisibility === "hidden" &&
-        state.target?.placeholderButtonText === showButtonText,
-      recorder
-    );
-
-    const clickedShow = await clickPlaceholderButton(page, keyword, showButtonText);
-    recorder.mark("ui.click", { action: "show", clicked: clickedShow });
-    if (!clickedShow) {
-      throw new Error("Could not click the comment placeholder show button.");
-    }
-
-    const revealed = await waitForState(
-      page,
-      keyword,
-      "comment revealed with bypass",
-      (state) =>
-        state.target?.bypass === true &&
-        state.target?.computedVisibility !== "hidden" &&
-        state.target?.placeholderButtonText === "重新隐藏",
-      recorder
-    );
-
-    await triggerRefresh(page);
-    const revealedAfterRefresh = await waitForState(
-      page,
-      keyword,
-      "comment remains revealed after refresh",
-      (state) =>
-        state.target?.bypass === true &&
-        state.target?.computedVisibility !== "hidden" &&
-        state.target?.placeholderButtonText === "重新隐藏",
-      recorder
-    );
-
-    const rehideButtonText = revealed.target?.placeholderButtonText || "重新隐藏";
-    const clickedHide = await clickPlaceholderButton(page, keyword, rehideButtonText);
-    recorder.mark("ui.click", { action: "rehide", clicked: clickedHide });
-    if (!clickedHide) {
-      throw new Error("Could not click the comment placeholder rehide button.");
-    }
-
-    const rehidden = await waitForState(
-      page,
-      keyword,
-      "comment hidden again",
-      (state) =>
-        state.target?.blocked === true &&
-        state.target?.computedVisibility === "hidden" &&
-        state.target?.placeholderButtonText === showButtonText,
+        state.target?.placeholderFound === true,
       recorder
     );
 
@@ -758,7 +664,6 @@ async function runTiming(runDir, recorder) {
       (state) =>
         state.target &&
         state.target.blocked === false &&
-        state.target.bypass === false &&
         state.target.computedVisibility !== "hidden" &&
         state.target.placeholderFound === false &&
         state.floatingButtonText === "关",
@@ -777,9 +682,6 @@ async function runTiming(runDir, recorder) {
         peeked,
         peekedAfterRefresh,
         hiddenAfterPeek,
-        revealed,
-        revealedAfterRefresh,
-        rehidden,
         restored,
       },
     };

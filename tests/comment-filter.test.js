@@ -90,6 +90,80 @@ describe("commentFilterFeature", () => {
         assert.deepEqual(stats, ["按评论内容屏蔽: 广告"]);
     });
 
+    it("uses the thread target for a blocked root comment and skips its replies", () => {
+        const rootComment = { id: "root" };
+        const childReply = { id: "reply" };
+        const threadTarget = {
+            id: "thread",
+            contains(element) {
+                return element === rootComment || element === childReply;
+            },
+        };
+        const rendered = [];
+
+        commentFilterFeature.run({
+            settings: {
+                blockedCommentText_Switch: true,
+                blockedCommentText_UseRegular: false,
+                blockedCommentText_Array: ["广告"],
+                hideCommentMode_Switch: true,
+            },
+            domAdapter: {
+                getCommentElements: () => [rootComment, childReply],
+                readCommentInfo: (element) => ({
+                    text: element === rootComment ? "广告主楼" : "广告楼中楼",
+                    userId: "",
+                    userName: "",
+                    hasImage: false,
+                }),
+                getCommentBlockTarget: (element) => element === rootComment ? threadTarget : element,
+            },
+            renderer: {
+                renderCommentBlockedState(element, blockResult, options) {
+                    rendered.push({ element, blockResult, options });
+                    return blockResult.blocked;
+                },
+            },
+            statsStore: null,
+        });
+
+        assert.equal(rendered.length, 1);
+        assert.equal(rendered[0].element, threadTarget);
+        assert.equal(rendered[0].options.sourceElement, rootComment);
+        assert.equal(rendered[0].options.mode, "hide");
+    });
+
+    it("restores the thread target when a root comment no longer matches", () => {
+        const rootComment = { id: "root" };
+        const threadTarget = { id: "thread" };
+        const rendered = [];
+
+        commentFilterFeature.run({
+            settings: {
+                blockedCommentText_Switch: false,
+                blockedCommentText_UseRegular: false,
+                blockedCommentText_Array: ["广告"],
+            },
+            domAdapter: {
+                getCommentElements: () => [rootComment],
+                readCommentInfo: () => ({ text: "广告主楼", userId: "", userName: "", hasImage: false }),
+                getCommentBlockTarget: () => threadTarget,
+            },
+            renderer: {
+                renderCommentBlockedState(element, blockResult, options) {
+                    rendered.push({ element, blockResult, options });
+                    return false;
+                },
+            },
+            statsStore: null,
+        });
+
+        assert.equal(rendered.length, 1);
+        assert.equal(rendered[0].element, threadTarget);
+        assert.equal(rendered[0].blockResult.blocked, false);
+        assert.equal(rendered[0].options.sourceElement, rootComment);
+    });
+
     it("restores comment state when the text rule is disabled", () => {
         const commentElement = { id: "comment-1" };
         const rendered = [];

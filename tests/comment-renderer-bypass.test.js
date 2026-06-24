@@ -9,42 +9,8 @@ afterEach(() => {
     delete globalThis.GM_addStyle;
 });
 
-describe("comment renderer bypass state", () => {
-    it("keeps a revealed comment revealed when the DOM node is replaced", () => {
-        setupDom();
-
-        const renderer = createBlockedRenderer();
-        const parent = document.createElement("div");
-        document.body.appendChild(parent);
-
-        const firstComment = document.createElement("bili-comment-renderer");
-        parent.appendChild(firstComment);
-
-        const blockResult = {
-            blocked: true,
-            reason: "按评论内容屏蔽: test",
-            commentKey: JSON.stringify(["2", "user", "comment text"]),
-        };
-
-        assert.equal(renderer.renderCommentBlockedState(firstComment, blockResult), true);
-        assert.equal(firstComment.style.visibility, "hidden");
-
-        parent.querySelector("button").click();
-        assert.equal(firstComment.style.visibility, "");
-        assert.equal(firstComment.dataset.bbvtCommentFilterBypass, "true");
-        assert.equal(parent.querySelector("button").textContent, "重新隐藏");
-
-        firstComment.remove();
-        const replacementComment = document.createElement("bili-comment-renderer");
-        parent.appendChild(replacementComment);
-
-        assert.equal(renderer.renderCommentBlockedState(replacementComment, blockResult), false);
-        assert.notEqual(replacementComment.style.display, "none");
-        assert.equal(replacementComment.dataset.bbvtCommentFilterBypass, "true");
-        assert.equal(parent.querySelector("button").textContent, "重新隐藏");
-    });
-
-    it("reveals a blocked comment while moving across the overlay body", () => {
+describe("comment renderer block modes", () => {
+    it("renders a blocked comment with an overlay and temporary hover reveal", () => {
         setupDom();
 
         const renderer = createBlockedRenderer();
@@ -61,11 +27,9 @@ describe("comment renderer bypass state", () => {
         });
 
         const overlay = parent.querySelector(".bbvt-comment-filter-overlay");
-        const actions = overlay.querySelector(".bbvt-comment-filter-overlay-actions");
         assert.equal(comment.style.visibility, "hidden");
-
-        overlay.onmousemove({ target: actions });
-        assert.equal(comment.style.visibility, "hidden");
+        assert.equal(parent.querySelector("button"), null);
+        assert.match(overlay.children[0].textContent, /test/);
 
         overlay.onmousemove({ target: overlay });
         assert.equal(comment.style.visibility, "");
@@ -84,7 +48,7 @@ describe("comment renderer bypass state", () => {
         assert.equal(overlay.dataset.bbvtCommentFilterPeeking, undefined);
     });
 
-    it("rebinds the overlay action when a revealed comment node is replaced", () => {
+    it("hides a blocked comment in hide mode without rendering an overlay", () => {
         setupDom();
 
         const renderer = createBlockedRenderer();
@@ -97,28 +61,47 @@ describe("comment renderer bypass state", () => {
         const blockResult = {
             blocked: true,
             reason: "按评论内容屏蔽: test",
-            commentKey: JSON.stringify(["1", "user", "comment text"]),
+            commentKey: JSON.stringify(["hide", "user", "comment text"]),
         };
 
-        renderer.renderCommentBlockedState(firstComment, blockResult);
-        parent.querySelector("button").click();
+        assert.equal(renderer.renderCommentBlockedState(firstComment, blockResult, { mode: "hide" }), true);
+        assert.equal(firstComment.style.display, "none");
+        assert.equal(firstComment.style.visibility, "");
+        assert.equal(firstComment.dataset.bbvtCommentBlockMode, "hide");
+        assert.equal(parent.querySelectorAll(".bbvt-comment-filter-overlay").length, 0);
+    });
+
+    it("switches from hide mode back to overlay mode without losing the original display", () => {
+        setupDom();
+
+        const renderer = createBlockedRenderer();
+        const parent = document.createElement("div");
+        document.body.appendChild(parent);
+
+        const comment = document.createElement("bili-comment-renderer");
+        comment.style.display = "block";
+        parent.appendChild(comment);
+
+        const blockResult = {
+            blocked: true,
+            reason: "按评论内容屏蔽: test",
+            commentKey: JSON.stringify(["switch", "user", "comment text"]),
+        };
+
+        renderer.renderCommentBlockedState(comment, blockResult, { mode: "hide" });
+        assert.equal(comment.style.display, "none");
+
+        renderer.renderCommentBlockedState(comment, blockResult, { mode: "overlay" });
+        assert.equal(comment.style.display, "block");
+        assert.equal(comment.style.visibility, "hidden");
+        assert.equal(comment.dataset.bbvtCommentBlockMode, "overlay");
         assert.equal(parent.querySelectorAll(".bbvt-comment-filter-overlay").length, 1);
 
-        firstComment.remove();
-        const replacementComment = document.createElement("bili-comment-renderer");
-        parent.appendChild(replacementComment);
-
-        renderer.renderCommentBlockedState(replacementComment, blockResult);
-
-        assert.equal(parent.querySelectorAll(".bbvt-comment-filter-overlay").length, 1);
-        assert.equal(parent.querySelector("button").textContent, "重新隐藏");
-
-        parent.querySelector("button").click();
-
-        assert.equal(replacementComment.style.visibility, "hidden");
-        assert.equal(replacementComment.dataset.bbvtCommentBlocked, "true");
-        assert.equal(parent.querySelectorAll(".bbvt-comment-filter-overlay").length, 1);
-        assert.equal(parent.querySelector("button").textContent, "显示");
+        renderer.renderCommentBlockedState(comment, { blocked: false, commentKey: blockResult.commentKey });
+        assert.equal(comment.style.display, "block");
+        assert.equal(comment.style.visibility, "");
+        assert.equal(comment.dataset.bbvtCommentBlocked, undefined);
+        assert.equal(parent.querySelectorAll(".bbvt-comment-filter-overlay").length, 0);
     });
 });
 
@@ -240,10 +223,6 @@ function matchesSelector(element, selector) {
 
     if (selector === ".bbvt-comment-filter-overlay") {
         return element.classList.contains("bbvt-comment-filter-overlay");
-    }
-
-    if (selector === ".bbvt-comment-filter-overlay-actions") {
-        return element.classList.contains("bbvt-comment-filter-overlay-actions");
     }
 
     return false;

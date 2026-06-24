@@ -170,11 +170,11 @@ describe("comment quick block master switch guard", () => {
         assert.equal(document.getElementById("bbvtCommentQuickBlockTrigger")?.hidden, true);
     });
 
-    it("does not show the trigger for a temporarily revealed filtered comment", () => {
+    it("does not show the trigger for a filtered comment", () => {
         setupDom();
 
         const commentElement = document.createElement("div");
-        commentElement.dataset.bbvtCommentFilterBypass = "true";
+        commentElement.dataset.bbvtCommentBlocked = "true";
         document.body.appendChild(commentElement);
 
         mountCommentQuickBlock(

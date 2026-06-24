@@ -119,6 +119,28 @@ describe("comment shadow DOM observer", () => {
         mock.timers.tick(150);
         assert.equal(refreshCount, 1);
     });
+
+    it("uses the whole thread as the block target for root comments only", async () => {
+        const thread = createFakeNode({
+            matches: (selector) => selector === "bili-comment-thread-renderer",
+            tagName: "bili-comment-thread-renderer",
+        });
+        const rootComment = createFakeNode({
+            parentElement: thread,
+            tagName: "bili-comment-renderer",
+        });
+        const subReply = createFakeNode({
+            classNames: ["sub-reply-item"],
+            parentElement: thread,
+            tagName: "div",
+        });
+
+        const { createBilibiliDomAdapter } = await importFreshDomAdapter();
+        const adapter = createBilibiliDomAdapter();
+
+        assert.equal(adapter.getCommentBlockTarget(rootComment), thread);
+        assert.equal(adapter.getCommentBlockTarget(subReply), subReply);
+    });
 });
 
 async function importFreshDomAdapter() {
@@ -162,19 +184,27 @@ function createFakeNode({
     childNodes = [],
     classNames = [],
     dataset = {},
+    matches = () => false,
     nodeType = 1,
+    parentElement = null,
+    parentNode = null,
     shadowRoot = null,
+    tagName = "div",
 } = {}) {
     return {
         childNodes,
+        className: classNames.join(" "),
         classList: {
             contains: (name) => classNames.includes(name),
         },
         dataset,
         nodeType,
+        parentElement,
+        parentNode,
         shadowRoot,
+        tagName,
         closest: () => null,
-        matches: () => false,
+        matches,
         querySelectorAll(selector) {
             return selector === "*" ? childNodes : [];
         },

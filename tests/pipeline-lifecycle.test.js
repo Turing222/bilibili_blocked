@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { describe, it, mock, afterEach, beforeEach } from "node:test";
 
-import { runPipeline, runVideoCardPipeline, isPipelineRunning } from "../src/orchestration/pipeline.js";
+import { clearScriptEffects, runPipeline, runVideoCardPipeline, isPipelineRunning } from "../src/orchestration/pipeline.js";
 import { shouldIgnoreMutationRecords } from "../src/platform/page-observers.js";
 import { debounce } from "../src/utils/debounce.js";
 import { createVideoStore } from "../src/state/video-store.js";
@@ -282,6 +282,50 @@ describe("runVideoCardPipeline", () => {
 
         assert.equal(ruleFeatureRuns, 1);
         assert.equal(context.getRenderCount(), 1);
+    });
+});
+
+describe("clearScriptEffects", () => {
+    it("restores comment block targets instead of only source comments", () => {
+        const rootComment = { id: "root" };
+        const threadTarget = { id: "thread" };
+        const restored = [];
+
+        globalThis.document = {
+            getElementById: () => null,
+            querySelectorAll: () => [],
+        };
+        globalThis.window = {
+            location: { href: "https://www.bilibili.com/video/BV1test/" },
+        };
+
+        clearScriptEffects({
+            settings: {},
+            videoStore: {
+                resetAllBlockEvaluations() {},
+            },
+            domAdapter: {
+                shouldSkipVideoBlocking: () => true,
+                shouldHandleCommentFiltering: () => true,
+                getCommentElements: () => [rootComment],
+                getCommentBlockTarget: () => threadTarget,
+            },
+            renderer: {
+                renderCommentBlockedState(element, blockResult) {
+                    restored.push({ element, blockResult });
+                },
+                syncBlockedOverlayRects() {},
+                restoreTrendingBlocks() {},
+                removeAllBlockedOverlays() {},
+            },
+            floatingEntry: {
+                updateStats() {},
+            },
+        });
+
+        assert.equal(restored.length, 1);
+        assert.equal(restored[0].element, threadTarget);
+        assert.deepEqual(restored[0].blockResult, { blocked: false });
     });
 });
 

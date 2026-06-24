@@ -67,6 +67,7 @@ export const defaultSettings = {
     blockedCommentUser_Switch: true,
     blockedCommentUser_Array: [],
     blockedCommentImage_Switch: false,
+    hideCommentMode_Switch: false,
 
     blockedBelowUpLevel_Switch: false,
     blockedBelowUpLevel: 0,

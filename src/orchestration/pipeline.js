@@ -280,7 +280,8 @@ function restoreCommentFilters(context) {
     }
 
     context.domAdapter.getCommentElements().forEach((commentElement) => {
-        context.renderer.renderCommentBlockedState(commentElement, { blocked: false });
+        const blockTarget = context.domAdapter.getCommentBlockTarget?.(commentElement) || commentElement;
+        context.renderer.renderCommentBlockedState(blockTarget, { blocked: false });
     });
 }
 

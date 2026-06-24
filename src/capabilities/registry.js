@@ -73,6 +73,7 @@ export const capabilities = [
             "blockedCommentText_Switch",
             "blockedCommentUser_Switch",
             "blockedCommentImage_Switch",
+            "hideCommentMode_Switch",
         ],
         failurePolicy: "只读取页面已渲染评论，不主动请求评论 API。",
     },

@@ -80,7 +80,7 @@ function showCommentQuickBlockTrigger(commentElement) {
 
 function isCommentFilterManaged(commentElement) {
     return commentElement.dataset?.bbvtCommentBlocked === "true" ||
-        commentElement.dataset?.bbvtCommentFilterBypass === "true";
+        commentElement.dataset?.bbvtCommentFilterPeeking === "true";
 }
 
 function ensureCommentQuickBlockTrigger() {

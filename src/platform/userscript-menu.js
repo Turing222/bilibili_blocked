@@ -59,6 +59,7 @@ const commentRuleControls = [
     arrayControl("评论关键词", "blockedCommentText_Switch", "blockedCommentText_Array", "blockedCommentText_UseRegular", "普通关键词为包含匹配，可切换正则"),
     arrayControl("评论用户", "blockedCommentUser_Switch", "blockedCommentUser_Array", null, "UID、uid:123、昵称或 name:昵称"),
     booleanControl("带图评论", "blockedCommentImage_Switch"),
+    booleanControl("隐藏评论而不是显示遮罩", "hideCommentMode_Switch"),
 ];
 
 const whitelistControls = [
