@@ -10,7 +10,8 @@
     "lint": "chcp 65001>nul && eslint src tests",
     "pw:chrome": "chcp 65001>nul && powershell.exe -NoProfile -ExecutionPolicy Bypass -File tools\\bilibili-browser\\start-chrome.ps1",
     "pw:smoke": "chcp 65001>nul && node scripts/playwright-smoke.mjs",
-    "pw:comment-timing": "chcp 65001>nul && node scripts/comment-timing-smoke.mjs"
+    "pw:comment-timing": "chcp 65001>nul && node scripts/comment-timing-smoke.mjs",
+    "pw:video-card-timing": "chcp 65001>nul && node scripts/video-card-timing-smoke.mjs"
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",
