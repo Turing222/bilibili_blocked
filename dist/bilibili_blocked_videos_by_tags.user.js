@@ -2459,6 +2459,7 @@ function normalizeToken(value) {
 // - 不处理视频卡片屏蔽。
 
 
+
 const blockedCommentTextType = "按评论内容屏蔽";
 const blockedCommentUserType = "按评论用户屏蔽";
 const blockedCommentImageType = "按带图评论屏蔽";
@@ -2503,6 +2504,11 @@ const commentFilterFeature = {
             const changedToBlocked = renderer.renderCommentBlockedState(blockTarget, blockResult, {
                 mode: settings.hideCommentMode_Switch ? "hide" : "overlay",
                 sourceElement: commentElement,
+                reasonItems: createCommentReasonItems(blockResult, settings, {
+                    isThreadTarget: blockTarget !== commentElement,
+                    settingsStore,
+                    refresh,
+                }),
             });
             if (blockResult.blocked) {
                 blockedTargets.add(blockTarget);
@@ -2520,6 +2526,73 @@ function hasEnabledCommentRules(settings) {
         (settings.blockedCommentText_Switch && settings.blockedCommentText_Array?.length > 0) ||
         settings.blockedCommentImage_Switch
     );
+}
+
+function createCommentReasonItems(blockResult, settings, { isThreadTarget = false, settingsStore, refresh } = {}) {
+    const reasons = getCommentBlockReasons(blockResult);
+    const scopeLabel = isThreadTarget ? "主楼命中" : "";
+
+    return reasons.map((reason) => {
+        const canRemove = Boolean(reason.canRemoveConfig && reason.configKey && reason.configValue && settingsStore);
+
+        return {
+            id: reason.id || [reason.type, reason.configKey, reason.configValue, reason.matchedValue].join("\u0001"),
+            label: formatCommentReasonLabel(reason, settings, scopeLabel),
+            title: formatCommentReasonTitle(reason),
+            canRemove,
+            removeTitle: "从配置中删除这条评论规则",
+            onRemove: canRemove
+                ? () => {
+                    removeConfigArrayItem(settingsStore, reason.configKey, reason.configValue);
+                    refresh?.({ reevaluate: true });
+                }
+                : null,
+        };
+    });
+}
+
+function getCommentBlockReasons(blockResult) {
+    if (Array.isArray(blockResult?.blockedReasons) && blockResult.blockedReasons.length > 0) {
+        return blockResult.blockedReasons;
+    }
+
+    if (blockResult?.blockReason) {
+        return [blockResult.blockReason];
+    }
+
+    return [];
+}
+
+function formatCommentReasonLabel(reason, settings = {}, scopeLabel = "") {
+    const parts = [];
+    if (scopeLabel) {
+        parts.push(scopeLabel);
+    }
+
+    parts.push(reason.type || reason.displayText || "评论屏蔽规则");
+
+    if (!settings.hideBlockedWordsInMenu_Switch) {
+        const item = reason.configValue || reason.item || "";
+        if (item) {
+            parts.push(item);
+        }
+    }
+
+    return parts.filter(Boolean).join(" · ");
+}
+
+function formatCommentReasonTitle(reason) {
+    const parts = [];
+    if (reason.type) {
+        parts.push(reason.type);
+    }
+    if (reason.configValue) {
+        parts.push(`规则：${reason.configValue}`);
+    }
+    if (reason.matchedValue && reason.matchedValue !== reason.configValue) {
+        parts.push(`命中：${reason.matchedValue}`);
+    }
+    return parts.join(" · ") || reason.displayText || "";
 }
 
 function isInsideBlockedCommentTarget(commentElement, blockedTargets) {
@@ -6689,7 +6762,7 @@ function createBlockedRenderer() {
 
 const commentFilterOverlays = new WeakMap();
 
-function blockCommentElement(commentElement, blockResult, { mode = "overlay" } = {}) {
+function blockCommentElement(commentElement, blockResult, { mode = "overlay", reasonItems = [] } = {}) {
     const reason = blockResult.reason || blockResult.type || "命中评论规则";
     const commentKey = getCommentBypassKey(commentElement, blockResult);
     const wasBlocked = commentElement.dataset.bbvtCommentBlocked === "true";
@@ -6713,7 +6786,7 @@ function blockCommentElement(commentElement, blockResult, { mode = "overlay" } =
     } else {
         injectCommentFilterStyles(commentElement);
         showCommentElement(commentElement, { keepBlockState: true });
-        ensureCommentOverlay(commentElement, { reason, commentKey });
+        ensureCommentOverlay(commentElement, { reason, commentKey, reasonItems });
 
         if (isCommentPeeking(commentElement)) {
             showCommentElement(commentElement, { keepBlockState: true });
@@ -6725,7 +6798,7 @@ function blockCommentElement(commentElement, blockResult, { mode = "overlay" } =
     return !wasBlocked || previousReason !== reason || previousMode !== mode;
 }
 
-function ensureCommentOverlay(commentElement, { reason, commentKey = "" }) {
+function ensureCommentOverlay(commentElement, { reason, commentKey = "", reasonItems = [] }) {
     if (!commentElement.parentNode) {
         return;
     }
@@ -6748,10 +6821,37 @@ function ensureCommentOverlay(commentElement, { reason, commentKey = "" }) {
     overlay.dataset.bbvtCommentFilterMode = "hidden";
     positionCommentOverlay(commentElement, overlay);
     removeDuplicateCommentOverlays(commentElement, overlay, commentKey);
-    overlay.replaceChildren();
-    const text = document.createElement("span");
-    text.className = "bbvt-comment-filter-overlay-text";
-    text.textContent = `已屏蔽评论：${reason}`;
+    const normalizedReasonItems = normalizeCommentReasonItems(reasonItems);
+    const overlaySignature = createCommentOverlaySignature(reason, normalizedReasonItems);
+    if (
+        overlay.dataset.bbvtCommentOverlaySignature !== overlaySignature ||
+        !overlay.querySelector?.(".bbvt-comment-filter-overlay-veil") ||
+        !overlay.querySelector?.(".bbvt-comment-filter-overlay-body")
+    ) {
+        overlay.replaceChildren();
+        const veil = document.createElement("div");
+        veil.className = "bbvt-comment-filter-overlay-veil";
+
+        const body = document.createElement("div");
+        body.className = "bbvt-comment-filter-overlay-body";
+
+        const label = document.createElement("span");
+        label.className = "bbvt-comment-filter-overlay-text";
+        label.textContent = "已屏蔽评论";
+
+        if (normalizedReasonItems.length === 0) {
+            label.textContent = `已屏蔽评论：${reason}`;
+            body.append(label);
+        } else {
+            body.append(label);
+            normalizedReasonItems.forEach((item) => {
+                body.appendChild(createCommentReasonChip(item));
+            });
+        }
+
+        overlay.append(veil, body);
+        overlay.dataset.bbvtCommentOverlaySignature = overlaySignature;
+    }
 
     if (isCommentPeeking(commentElement)) {
         overlay.dataset.bbvtCommentFilterPeeking = "true";
@@ -6759,14 +6859,86 @@ function ensureCommentOverlay(commentElement, { reason, commentKey = "" }) {
         delete overlay.dataset.bbvtCommentFilterPeeking;
     }
 
-    overlay.onmousemove = () => {
+    overlay.onmousemove = (event) => {
+        if (isCommentOverlayControlTarget(event?.target, overlay)) {
+            return;
+        }
         peekCommentElement(commentElement, overlay);
     };
     overlay.onmouseleave = () => {
         endCommentOverlayPeek(commentElement, overlay);
     };
+}
 
-    overlay.append(text);
+function normalizeCommentReasonItems(reasonItems) {
+    return (Array.isArray(reasonItems) ? reasonItems : [])
+        .map((item) => ({
+            ...item,
+            label: String(item?.label || "").trim(),
+        }))
+        .filter((item) => item.label);
+}
+
+function createCommentOverlaySignature(reason, reasonItems) {
+    return JSON.stringify({
+        reason: String(reason || ""),
+        reasonItems: reasonItems.map((item) => ({
+            id: item.id || "",
+            label: item.label || "",
+            title: item.title || "",
+            canRemove: Boolean(item.canRemove),
+            removeTitle: item.removeTitle || "",
+        })),
+    });
+}
+
+function createCommentReasonChip(item) {
+    const chip = document.createElement("span");
+    chip.className = "bbvt-comment-filter-reason-chip";
+    chip.title = item.title || item.label;
+    stopCommentOverlayControlEvents(chip);
+
+    const label = document.createElement("span");
+    label.className = "bbvt-comment-filter-reason-label";
+    label.textContent = item.label;
+    chip.appendChild(label);
+
+    if (item.canRemove && typeof item.onRemove === "function") {
+        const removeButton = document.createElement("button");
+        removeButton.type = "button";
+        removeButton.className = "bbvt-comment-filter-reason-remove";
+        removeButton.textContent = "×";
+        removeButton.title = item.removeTitle || "从配置中删除这条规则";
+        stopCommentOverlayControlEvents(removeButton);
+        removeButton.addEventListener("click", (event) => {
+            event.preventDefault();
+            event.stopPropagation();
+            item.onRemove(item);
+        });
+        chip.appendChild(removeButton);
+    }
+
+    return chip;
+}
+
+function stopCommentOverlayControlEvents(element) {
+    ["mousemove", "mousedown", "pointerdown"].forEach((eventName) => {
+        element.addEventListener(eventName, (event) => {
+            event.stopPropagation();
+        });
+    });
+}
+
+function isCommentOverlayControlTarget(target, overlay) {
+    let current = target;
+    while (current && current !== overlay) {
+        if (current.classList?.contains?.("bbvt-comment-filter-overlay-body")) {
+            return true;
+        }
+        current = current.parentNode;
+    }
+
+    return false;
 }
 
 function ensureCommentOverlayParent(parent) {
@@ -6929,29 +7101,52 @@ function getCommentBypassKey(commentElement, blockResult) {
 function injectCommentFilterStyles(commentElement) {
     const css = `
         .bbvt-comment-filter-overlay {
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            gap: 10px;
+            display: block;
             box-sizing: border-box;
-            padding: 10px 12px;
-            border: 1px solid rgba(0, 174, 236, 0.28);
-            border-radius: 8px;
-            background: rgba(28, 32, 36, 0.88);
             color: rgb(245, 245, 245);
             font-size: 12px;
             line-height: 1.45;
-            box-shadow: 0 8px 24px rgba(0, 0, 0, 0.16);
-            backdrop-filter: blur(5px);
-            -webkit-backdrop-filter: blur(5px);
-            transition: opacity 0.16s ease, background 0.16s ease, border-color 0.16s ease, color 0.16s ease;
             overflow: hidden;
         }
 
-        .bbvt-comment-filter-overlay[data-bbvt-comment-filter-mode="hidden"][data-bbvt-comment-filter-peeking="true"] {
+        .bbvt-comment-filter-overlay-veil {
+            position: absolute;
+            inset: 0;
+            box-sizing: border-box;
+            border: 1px solid rgba(0, 174, 236, 0.28);
+            border-radius: 8px;
+            background: rgba(28, 32, 36, 0.88);
+            box-shadow: 0 8px 24px rgba(0, 0, 0, 0.16);
+            backdrop-filter: blur(5px);
+            -webkit-backdrop-filter: blur(5px);
+            transition: opacity 0.16s ease, background 0.16s ease, border-color 0.16s ease;
+        }
+
+        .bbvt-comment-filter-overlay[data-bbvt-comment-filter-mode="hidden"][data-bbvt-comment-filter-peeking="true"] .bbvt-comment-filter-overlay-veil {
             opacity: 0;
             backdrop-filter: none;
             -webkit-backdrop-filter: none;
+        }
+
+        .bbvt-comment-filter-overlay-body {
+            position: absolute;
+            top: 8px;
+            right: 8px;
+            z-index: 1;
+            display: flex;
+            align-items: center;
+            justify-content: flex-end;
+            flex-wrap: wrap;
+            gap: 6px;
+            max-width: calc(100% - 16px);
+            box-sizing: border-box;
+            padding: 5px 7px;
+            border: 1px solid rgba(0, 174, 236, 0.32);
+            border-radius: 7px;
+            background: rgba(25, 29, 34, 0.9);
+            box-shadow: 0 6px 18px rgba(0, 0, 0, 0.18);
+            backdrop-filter: blur(6px);
+            -webkit-backdrop-filter: blur(6px);
         }
 
         .bbvt-comment-filter-overlay-text {
@@ -6959,6 +7154,48 @@ function injectCommentFilterStyles(commentElement) {
             overflow: hidden;
             text-overflow: ellipsis;
             white-space: nowrap;
+            color: rgba(245, 245, 245, 0.92);
+        }
+
+        .bbvt-comment-filter-reason-chip {
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            min-width: 0;
+            max-width: min(520px, 100%);
+            padding: 3px 6px 3px 8px;
+            border: 1px solid rgba(0, 174, 236, 0.36);
+            border-radius: 999px;
+            background: rgba(0, 174, 236, 0.18);
+            color: rgb(255, 255, 255);
+        }
+
+        .bbvt-comment-filter-reason-label {
+            min-width: 0;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+        }
+
+        .bbvt-comment-filter-reason-remove {
+            width: 16px;
+            height: 16px;
+            flex: 0 0 auto;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            padding: 0;
+            border: 0;
+            border-radius: 50%;
+            background: rgba(255, 255, 255, 0.22);
+            color: rgb(255, 255, 255);
+            font-size: 13px;
+            line-height: 1;
+            cursor: pointer;
+        }
+
+        .bbvt-comment-filter-reason-remove:hover {
+            background: rgba(0, 174, 236, 0.82);
         }
     `;
 
@@ -6968,7 +7205,12 @@ function injectCommentFilterStyles(commentElement) {
         return;
     }
 
-    if (root.getElementById?.("bbvtCommentFilterStyles") || root.querySelector?.("#bbvtCommentFilterStyles")) {
+    const existingStyle = root.getElementById?.("bbvtCommentFilterStyles") ||
+        root.querySelector?.("#bbvtCommentFilterStyles");
+    if (existingStyle) {
+        if (existingStyle.textContent !== css) {
+            existingStyle.textContent = css;
+        }
         return;
     }
 

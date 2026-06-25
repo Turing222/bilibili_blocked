@@ -14,6 +14,7 @@ import {
     findBlockedCommentUserMatch,
 } from "../utils/comment-filter.js";
 import { mountCommentQuickBlock } from "../actions/comment-quick-block.js";
+import { removeConfigArrayItem } from "../settings/mutations.js";
 
 const blockedCommentTextType = "按评论内容屏蔽";
 const blockedCommentUserType = "按评论用户屏蔽";
@@ -60,6 +61,11 @@ export const commentFilterFeature = {
             const changedToBlocked = renderer.renderCommentBlockedState(blockTarget, blockResult, {
                 mode: settings.hideCommentMode_Switch ? "hide" : "overlay",
                 sourceElement: commentElement,
+                reasonItems: createCommentReasonItems(blockResult, settings, {
+                    isThreadTarget: blockTarget !== commentElement,
+                    settingsStore,
+                    refresh,
+                }),
             });
             if (blockResult.blocked) {
                 blockedTargets.add(blockTarget);
@@ -77,6 +83,73 @@ function hasEnabledCommentRules(settings) {
         (settings.blockedCommentText_Switch && settings.blockedCommentText_Array?.length > 0) ||
         settings.blockedCommentImage_Switch
     );
+}
+
+function createCommentReasonItems(blockResult, settings, { isThreadTarget = false, settingsStore, refresh } = {}) {
+    const reasons = getCommentBlockReasons(blockResult);
+    const scopeLabel = isThreadTarget ? "主楼命中" : "";
+
+    return reasons.map((reason) => {
+        const canRemove = Boolean(reason.canRemoveConfig && reason.configKey && reason.configValue && settingsStore);
+
+        return {
+            id: reason.id || [reason.type, reason.configKey, reason.configValue, reason.matchedValue].join("\u0001"),
+            label: formatCommentReasonLabel(reason, settings, scopeLabel),
+            title: formatCommentReasonTitle(reason),
+            canRemove,
+            removeTitle: "从配置中删除这条评论规则",
+            onRemove: canRemove
+                ? () => {
+                    removeConfigArrayItem(settingsStore, reason.configKey, reason.configValue);
+                    refresh?.({ reevaluate: true });
+                }
+                : null,
+        };
+    });
+}
+
+function getCommentBlockReasons(blockResult) {
+    if (Array.isArray(blockResult?.blockedReasons) && blockResult.blockedReasons.length > 0) {
+        return blockResult.blockedReasons;
+    }
+
+    if (blockResult?.blockReason) {
+        return [blockResult.blockReason];
+    }
+
+    return [];
+}
+
+function formatCommentReasonLabel(reason, settings = {}, scopeLabel = "") {
+    const parts = [];
+    if (scopeLabel) {
+        parts.push(scopeLabel);
+    }
+
+    parts.push(reason.type || reason.displayText || "评论屏蔽规则");
+
+    if (!settings.hideBlockedWordsInMenu_Switch) {
+        const item = reason.configValue || reason.item || "";
+        if (item) {
+            parts.push(item);
+        }
+    }
+
+    return parts.filter(Boolean).join(" · ");
+}
+
+function formatCommentReasonTitle(reason) {
+    const parts = [];
+    if (reason.type) {
+        parts.push(reason.type);
+    }
+    if (reason.configValue) {
+        parts.push(`规则：${reason.configValue}`);
+    }
+    if (reason.matchedValue && reason.matchedValue !== reason.configValue) {
+        parts.push(`命中：${reason.matchedValue}`);
+    }
+    return parts.join(" · ") || reason.displayText || "";
 }
 
 function isInsideBlockedCommentTarget(commentElement, blockedTargets) {

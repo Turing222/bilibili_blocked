@@ -463,17 +463,25 @@ async function moveAcrossPlaceholder(page, keyword) {
 
     function readState(placeholder) {
       const target = placeholder?.nextElementSibling ?? null;
+      const veil = placeholder?.querySelector?.(".bbvt-comment-filter-overlay-veil") ?? null;
       return {
         found: Boolean(placeholder),
         targetVisibility: target ? getComputedStyle(target).visibility : "",
         overlayOpacity: placeholder ? getComputedStyle(placeholder).opacity : "",
+        veilOpacity: veil ? getComputedStyle(veil).opacity : "",
         overlayPeeking: placeholder?.dataset.bbvtCommentFilterPeeking === "true",
         commentPeeking: target?.dataset.bbvtCommentFilterPeeking === "true",
+        reasonChipFound: Boolean(placeholder?.querySelector?.(".bbvt-comment-filter-reason-chip")),
+        removeButtonFound: Boolean(placeholder?.querySelector?.(".bbvt-comment-filter-reason-remove")),
       };
     }
 
-    const placeholders = queryAllDeep(document, ".bbvt-comment-filter-overlay");
-    const placeholder = placeholders.find((item) => item.textContent.includes(targetKeyword)) || null;
+    function findPlaceholder() {
+      const placeholders = queryAllDeep(document, ".bbvt-comment-filter-overlay");
+      return placeholders.find((item) => item.textContent.includes(targetKeyword)) || placeholders[0] || null;
+    }
+
+    let placeholder = findPlaceholder();
     const moveEvent = () => new MouseEvent("mousemove", {
       bubbles: true,
       cancelable: true,
@@ -481,8 +489,21 @@ async function moveAcrossPlaceholder(page, keyword) {
     });
 
     placeholder?.dispatchEvent(moveEvent());
-    await new Promise((resolve) => setTimeout(resolve, 250));
-    const afterBody = readState(placeholder);
+    let afterBody = readState(placeholder);
+    const deadline = Date.now() + 1500;
+    while (
+      Date.now() < deadline &&
+      (
+        afterBody.targetVisibility === "hidden" ||
+        afterBody.veilOpacity === "1" ||
+        !afterBody.reasonChipFound ||
+        !afterBody.removeButtonFound
+      )
+    ) {
+      await new Promise((resolve) => setTimeout(resolve, 100));
+      placeholder = findPlaceholder() || placeholder;
+      afterBody = readState(placeholder);
+    }
 
     return { afterBody };
   }, keyword);
@@ -512,8 +533,8 @@ async function leavePlaceholder(page, keyword) {
       return [...new Set(results)];
     }
 
-    const placeholder = queryAllDeep(document, ".bbvt-comment-filter-overlay")
-      .find((item) => item.textContent.includes(targetKeyword)) || null;
+    const placeholders = queryAllDeep(document, ".bbvt-comment-filter-overlay");
+    const placeholder = placeholders.find((item) => item.textContent.includes(targetKeyword)) || placeholders[0] || null;
     placeholder?.dispatchEvent(new MouseEvent("mouseleave", {
       bubbles: false,
       cancelable: true,
@@ -538,6 +559,53 @@ async function toggleFloatingEntry(page) {
     button.click();
     return true;
   });
+}
+
+async function clickReasonRemove(page, keyword) {
+  return page.evaluate((targetKeyword) => {
+    function queryAllDeep(root, selector, visited = new WeakSet()) {
+      const results = [];
+      if (!root?.querySelectorAll) {
+        return results;
+      }
+      if (root.matches?.(selector)) {
+        results.push(root);
+      }
+      if (root.shadowRoot && !visited.has(root.shadowRoot)) {
+        visited.add(root.shadowRoot);
+        results.push(...queryAllDeep(root.shadowRoot, selector, visited));
+      }
+      results.push(...root.querySelectorAll(selector));
+      root.querySelectorAll("*").forEach((element) => {
+        if (element.shadowRoot && !visited.has(element.shadowRoot)) {
+          visited.add(element.shadowRoot);
+          results.push(...queryAllDeep(element.shadowRoot, selector, visited));
+        }
+      });
+      return [...new Set(results)];
+    }
+
+    const placeholders = queryAllDeep(document, ".bbvt-comment-filter-overlay");
+    const placeholder = placeholders.find((item) => item.textContent.includes(targetKeyword)) || placeholders[0] || null;
+    const button = placeholder?.querySelector?.(".bbvt-comment-filter-reason-remove") || null;
+    const target = placeholder?.nextElementSibling ?? null;
+    button?.dispatchEvent(new MouseEvent("mousemove", {
+      bubbles: true,
+      cancelable: true,
+      view: window,
+    }));
+    const afterControlMove = {
+      targetVisibility: target ? getComputedStyle(target).visibility : "",
+      overlayPeeking: placeholder?.dataset.bbvtCommentFilterPeeking === "true",
+      commentPeeking: target?.dataset.bbvtCommentFilterPeeking === "true",
+    };
+    button?.click();
+    return {
+      found: Boolean(placeholder),
+      buttonFound: Boolean(button),
+      afterControlMove,
+    };
+  }, keyword);
 }
 
 async function triggerRefresh(page) {
@@ -617,9 +685,11 @@ async function runTiming(runDir, recorder) {
     recorder.mark("ui.peek", peeked);
     if (
       peeked.afterBody.targetVisibility === "hidden" ||
-      peeked.afterBody.overlayOpacity === "1" ||
+      peeked.afterBody.veilOpacity === "1" ||
       !peeked.afterBody.overlayPeeking ||
-      !peeked.afterBody.commentPeeking
+      !peeked.afterBody.commentPeeking ||
+      !peeked.afterBody.reasonChipFound ||
+      !peeked.afterBody.removeButtonFound
     ) {
       throw new Error("Comment overlay hover peek did not keep the expected hidden/visible states.");
     }
@@ -648,6 +718,31 @@ async function runTiming(runDir, recorder) {
         state.target?.blocked === true &&
         state.target?.computedVisibility === "hidden" &&
         state.target?.placeholderFound === true,
+      recorder
+    );
+
+    const removedRule = await clickReasonRemove(page, keyword);
+    recorder.mark("ui.rule.remove", removedRule);
+    if (
+      !removedRule.found ||
+      !removedRule.buttonFound ||
+      removedRule.afterControlMove?.targetVisibility !== "hidden" ||
+      removedRule.afterControlMove?.overlayPeeking ||
+      removedRule.afterControlMove?.commentPeeking
+    ) {
+      throw new Error("Could not click the comment rule remove button.");
+    }
+
+    const restoredByRuleRemoval = await waitForState(
+      page,
+      keyword,
+      "comment restored after removing keyword rule",
+      (state) =>
+        state.target &&
+        state.target.blocked === false &&
+        state.target.computedVisibility !== "hidden" &&
+        state.target.placeholderFound === false &&
+        !state.storage?.blockedCommentText_Array?.includes(keyword),
       recorder
     );
 
@@ -682,6 +777,7 @@ async function runTiming(runDir, recorder) {
         peeked,
         peekedAfterRefresh,
         hiddenAfterPeek,
+        restoredByRuleRemoval,
         restored,
       },
     };

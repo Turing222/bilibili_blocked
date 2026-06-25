@@ -90,6 +90,59 @@ describe("commentFilterFeature", () => {
         assert.deepEqual(stats, ["按评论内容屏蔽: 广告"]);
     });
 
+    it("passes trace-style removable comment reasons to the renderer", () => {
+        const rootComment = { id: "root" };
+        const threadTarget = {
+            id: "thread",
+            contains(element) {
+                return element === rootComment;
+            },
+        };
+        let savedSettings = {
+            blockedCommentText_Switch: true,
+            blockedCommentText_UseRegular: false,
+            blockedCommentText_Array: ["广告", "灌水"],
+            hideBlockedWordsInMenu_Switch: false,
+        };
+        const refreshCalls = [];
+        const rendered = [];
+
+        commentFilterFeature.run({
+            settings: savedSettings,
+            settingsStore: {
+                exportSettings: () => ({ ...savedSettings }),
+                saveSettings(nextSettings) {
+                    savedSettings = nextSettings;
+                    return savedSettings;
+                },
+            },
+            refresh(options) {
+                refreshCalls.push(options);
+            },
+            domAdapter: {
+                getCommentElements: () => [rootComment],
+                readCommentInfo: () => ({ text: "广告主楼", userId: "", userName: "", hasImage: false }),
+                getCommentBlockTarget: () => threadTarget,
+            },
+            renderer: {
+                renderCommentBlockedState(element, blockResult, options) {
+                    rendered.push({ element, blockResult, options });
+                    return blockResult.blocked;
+                },
+            },
+            statsStore: null,
+        });
+
+        const reasonItem = rendered[0].options.reasonItems[0];
+        assert.equal(rendered[0].element, threadTarget);
+        assert.equal(reasonItem.label, "主楼命中 · 按评论内容屏蔽 · 广告");
+        assert.equal(reasonItem.canRemove, true);
+        reasonItem.onRemove();
+
+        assert.deepEqual(savedSettings.blockedCommentText_Array, ["灌水"]);
+        assert.deepEqual(refreshCalls, [{ reevaluate: true }]);
+    });
+
     it("uses the thread target for a blocked root comment and skips its replies", () => {
         const rootComment = { id: "root" };
         const childReply = { id: "reply" };

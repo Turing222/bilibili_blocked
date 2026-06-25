@@ -27,9 +27,10 @@ describe("comment renderer block modes", () => {
         });
 
         const overlay = parent.querySelector(".bbvt-comment-filter-overlay");
+        const text = overlay.querySelector(".bbvt-comment-filter-overlay-text");
         assert.equal(comment.style.visibility, "hidden");
         assert.equal(parent.querySelector("button"), null);
-        assert.match(overlay.children[0].textContent, /test/);
+        assert.match(text.textContent, /test/);
 
         overlay.onmousemove({ target: overlay });
         assert.equal(comment.style.visibility, "");
@@ -46,6 +47,143 @@ describe("comment renderer block modes", () => {
         overlay.onmouseleave();
         assert.equal(comment.style.visibility, "hidden");
         assert.equal(overlay.dataset.bbvtCommentFilterPeeking, undefined);
+    });
+
+    it("renders removable reason chips that remain available while peeking", () => {
+        setupDom();
+
+        const renderer = createBlockedRenderer();
+        const parent = document.createElement("div");
+        document.body.appendChild(parent);
+
+        const comment = document.createElement("bili-comment-renderer");
+        parent.appendChild(comment);
+
+        let removed = false;
+        renderer.renderCommentBlockedState(comment, {
+            blocked: true,
+            reason: "按评论内容屏蔽: test",
+            commentKey: JSON.stringify(["chip", "user", "comment text"]),
+        }, {
+            reasonItems: [{
+                label: "按评论内容屏蔽 · test",
+                title: "规则：test",
+                canRemove: true,
+                onRemove: () => {
+                    removed = true;
+                },
+            }],
+        });
+
+        const overlay = parent.querySelector(".bbvt-comment-filter-overlay");
+        const chip = overlay.querySelector(".bbvt-comment-filter-reason-chip");
+        const button = overlay.querySelector("button");
+        assert.ok(chip);
+        assert.ok(button);
+
+        overlay.onmousemove({ target: chip });
+        assert.equal(comment.style.visibility, "hidden");
+        assert.equal(overlay.dataset.bbvtCommentFilterPeeking, undefined);
+
+        overlay.onmousemove({ target: overlay });
+        assert.equal(comment.style.visibility, "");
+        assert.equal(overlay.dataset.bbvtCommentFilterPeeking, "true");
+        assert.ok(overlay.querySelector("button"));
+
+        button.click();
+        assert.equal(removed, true);
+    });
+
+    it("keeps removable reason controls stable when rerendering the same overlay", () => {
+        setupDom();
+
+        const renderer = createBlockedRenderer();
+        const parent = document.createElement("div");
+        document.body.appendChild(parent);
+
+        const comment = document.createElement("bili-comment-renderer");
+        parent.appendChild(comment);
+
+        let removed = false;
+        const blockResult = {
+            blocked: true,
+            reason: "按评论内容屏蔽: test",
+            commentKey: JSON.stringify(["stable", "user", "comment text"]),
+        };
+        const options = {
+            reasonItems: [{
+                id: "reason:test",
+                label: "按评论内容屏蔽 · test",
+                title: "规则：test",
+                canRemove: true,
+                onRemove: () => {
+                    removed = true;
+                },
+            }],
+        };
+
+        renderer.renderCommentBlockedState(comment, blockResult, options);
+        const overlay = parent.querySelector(".bbvt-comment-filter-overlay");
+        const button = overlay.querySelector("button");
+
+        renderer.renderCommentBlockedState(comment, blockResult, options);
+        assert.equal(overlay.querySelector("button"), button);
+
+        button.click();
+        assert.equal(removed, true);
+    });
+
+    it("updates an existing comment filter style tag when the overlay css changes", () => {
+        setupDom();
+
+        const oldStyle = document.createElement("style");
+        oldStyle.id = "bbvtCommentFilterStyles";
+        oldStyle.textContent = ".bbvt-comment-filter-overlay { opacity: 0; }";
+        document.head.appendChild(oldStyle);
+
+        const renderer = createBlockedRenderer();
+        const parent = document.createElement("div");
+        document.body.appendChild(parent);
+
+        const comment = document.createElement("bili-comment-renderer");
+        parent.appendChild(comment);
+
+        renderer.renderCommentBlockedState(comment, {
+            blocked: true,
+            reason: "按评论内容屏蔽: test",
+            commentKey: JSON.stringify(["style", "user", "comment text"]),
+        });
+
+        assert.match(oldStyle.textContent, /bbvt-comment-filter-overlay-veil/);
+    });
+
+    it("keeps the reason control bar visually independent from the peeking veil", () => {
+        setupDom();
+
+        const renderer = createBlockedRenderer();
+        const parent = document.createElement("div");
+        document.body.appendChild(parent);
+
+        const comment = document.createElement("bili-comment-renderer");
+        parent.appendChild(comment);
+
+        renderer.renderCommentBlockedState(comment, {
+            blocked: true,
+            reason: "按评论内容屏蔽: test",
+            commentKey: JSON.stringify(["layout", "user", "comment text"]),
+        }, {
+            reasonItems: [{
+                label: "按评论内容屏蔽 · test",
+                canRemove: true,
+                onRemove: () => {},
+            }],
+        });
+
+        const styleText = document.getElementById("bbvtCommentFilterStyles").textContent;
+        assert.ok(styleText.includes(".bbvt-comment-filter-overlay-body"));
+        assert.ok(styleText.includes("position: absolute;"));
+        assert.ok(styleText.includes("right: 8px;"));
+        assert.ok(styleText.includes("background: rgba(25, 29, 34, 0.9);"));
     });
 
     it("hides a blocked comment in hide mode without rendering an overlay", () => {
@@ -221,8 +359,8 @@ function matchesSelector(element, selector) {
         return element.tagName === "BUTTON";
     }
 
-    if (selector === ".bbvt-comment-filter-overlay") {
-        return element.classList.contains("bbvt-comment-filter-overlay");
+    if (selector.startsWith(".")) {
+        return element.classList.contains(selector.slice(1));
     }
 
     return false;
