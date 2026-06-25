@@ -100,6 +100,17 @@ const commentObservedAttributeNames = [
     "user-name",
 ];
 
+const videoCardSelectors = [
+    "div.bili-video-card",
+    "div.video-page-card-small",
+    "li.bili-rank-list-video__item",
+    "div.video-card",
+    "li.rank-item",
+    "div.video-card-reco",
+    "div.video-card-common",
+    "div.rank-wrap",
+].join(", ");
+
 export function createBilibiliDomAdapter() {
     return {
         shouldSkipVideoBlocking(currentUrl) {
@@ -107,17 +118,21 @@ export function createBilibiliDomAdapter() {
         },
 
         getVideoElements() {
-            let videoElements = document.querySelectorAll(
-                "div.bili-video-card, div.video-page-card-small, li.bili-rank-list-video__item, div.video-card, li.rank-item, div.video-card-reco, div.video-card-common, div.rank-wrap"
-            );
+            return collectVideoElements([document]);
+        },
 
-            videoElements = Array.from(videoElements).filter((element) => element.querySelector("a"));
+        getVideoElementsFromMutationRecords(records) {
+            const addedNodes = [];
 
-            if (document.querySelector("div.recommend-container__2-line") == null) {
-                videoElements = videoElements.filter((element) => element.classList.value !== "bili-video-card is-rcmd");
+            for (const record of records || []) {
+                if (record?.type !== "childList") {
+                    continue;
+                }
+
+                addedNodes.push(...record.addedNodes);
             }
 
-            return videoElements;
+            return collectVideoElements(addedNodes);
         },
 
         isAlreadyBlockedChildElement(videoElement) {
@@ -830,6 +845,22 @@ function collectMatches(root, selector, results, visitedShadowRoots) {
         visitedShadowRoots.add(element.shadowRoot);
         collectMatches(element.shadowRoot, selector, results, visitedShadowRoots);
     });
+}
+
+function collectVideoElements(roots) {
+    let videoElements = [];
+
+    for (const root of roots || []) {
+        videoElements.push(...querySelectorAllDeep(root, videoCardSelectors));
+    }
+
+    videoElements = videoElements.filter((element) => element?.querySelector?.("a"));
+
+    if (document.querySelector("div.recommend-container__2-line") == null) {
+        videoElements = videoElements.filter((element) => element.classList.value !== "bili-video-card is-rcmd");
+    }
+
+    return [...new Set(videoElements)];
 }
 
 function readTextDeep(node) {

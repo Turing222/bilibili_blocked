@@ -5842,24 +5842,39 @@ const commentObservedAttributeNames = [
     "uname",
     "user-id",
     "user-name",
-];function createBilibiliDomAdapter() {
+];
+
+const videoCardSelectors = [
+    "div.bili-video-card",
+    "div.video-page-card-small",
+    "li.bili-rank-list-video__item",
+    "div.video-card",
+    "li.rank-item",
+    "div.video-card-reco",
+    "div.video-card-common",
+    "div.rank-wrap",
+].join(", ");function createBilibiliDomAdapter() {
     return {
         shouldSkipVideoBlocking(currentUrl) {
             return noBlockedVideoUrls.some((urlRule) => urlRule.test(currentUrl));
         },
 
         getVideoElements() {
-            let videoElements = document.querySelectorAll(
-                "div.bili-video-card, div.video-page-card-small, li.bili-rank-list-video__item, div.video-card, li.rank-item, div.video-card-reco, div.video-card-common, div.rank-wrap"
-            );
+            return collectVideoElements([document]);
+        },
 
-            videoElements = Array.from(videoElements).filter((element) => element.querySelector("a"));
+        getVideoElementsFromMutationRecords(records) {
+            const addedNodes = [];
 
-            if (document.querySelector("div.recommend-container__2-line") == null) {
-                videoElements = videoElements.filter((element) => element.classList.value !== "bili-video-card is-rcmd");
+            for (const record of records || []) {
+                if (record?.type !== "childList") {
+                    continue;
+                }
+
+                addedNodes.push(...record.addedNodes);
             }
 
-            return videoElements;
+            return collectVideoElements(addedNodes);
         },
 
         isAlreadyBlockedChildElement(videoElement) {
@@ -6572,6 +6587,22 @@ function collectMatches(root, selector, results, visitedShadowRoots) {
         visitedShadowRoots.add(element.shadowRoot);
         collectMatches(element.shadowRoot, selector, results, visitedShadowRoots);
     });
+}
+
+function collectVideoElements(roots) {
+    let videoElements = [];
+
+    for (const root of roots || []) {
+        videoElements.push(...querySelectorAllDeep(root, videoCardSelectors));
+    }
+
+    videoElements = videoElements.filter((element) => element?.querySelector?.("a"));
+
+    if (document.querySelector("div.recommend-container__2-line") == null) {
+        videoElements = videoElements.filter((element) => element.classList.value !== "bili-video-card is-rcmd");
+    }
+
+    return [...new Set(videoElements)];
 }
 
 function readTextDeep(node) {
@@ -9818,8 +9849,21 @@ function isScriptOwnedNode(node) {
 
         return nodes.every(isScriptOwnedNode);
     });
-}function startPageObservers(run, { isPipelineRunning = () => false } = {}) {
+}function startPageObservers(run, {
+    isPipelineRunning = () => false,
+    getAddedVideoElements = () => [],
+    onAddedVideoElements = () => {},
+} = {}) {
     const debouncedRun = debounce(run, 300);
+    const pendingAddedVideoElements = new Set();
+    const flushAddedVideoElements = debounce(() => {
+        if (pendingAddedVideoElements.size === 0) {
+            return;
+        }
+
+        onAddedVideoElements([...pendingAddedVideoElements]);
+        pendingAddedVideoElements.clear();
+    }, 50);
 
     window.addEventListener("load", run);
     window.addEventListener("resize", debounce(run, 150));
@@ -9827,6 +9871,12 @@ function isScriptOwnedNode(node) {
     const observer = new MutationObserver((records) => {
         if (shouldIgnoreMutationRecords(records, isPipelineRunning())) {
             return;
+        }
+
+        const addedVideoElements = getAddedVideoElements(records);
+        if (addedVideoElements.length > 0) {
+            addedVideoElements.forEach((videoElement) => pendingAddedVideoElements.add(videoElement));
+            flushAddedVideoElements();
         }
 
         debouncedRun();
@@ -10413,5 +10463,11 @@ startPageObservers(() => {
     invokePipeline();
 }, {
     isPipelineRunning,
+    getAddedVideoElements: (records) => domAdapter.getVideoElementsFromMutationRecords(records),
+    onAddedVideoElements: (videoElements) => {
+        videoElements.forEach((videoElement) => {
+            runtimeContext.rerunVideoCard(videoElement);
+        });
+    },
 });
 })();

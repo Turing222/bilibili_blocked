@@ -70,8 +70,21 @@ export function shouldIgnoreMutationRecords(records, isPipelineRunning) {
     });
 }
 
-export function startPageObservers(run, { isPipelineRunning = () => false } = {}) {
+export function startPageObservers(run, {
+    isPipelineRunning = () => false,
+    getAddedVideoElements = () => [],
+    onAddedVideoElements = () => {},
+} = {}) {
     const debouncedRun = debounce(run, 300);
+    const pendingAddedVideoElements = new Set();
+    const flushAddedVideoElements = debounce(() => {
+        if (pendingAddedVideoElements.size === 0) {
+            return;
+        }
+
+        onAddedVideoElements([...pendingAddedVideoElements]);
+        pendingAddedVideoElements.clear();
+    }, 50);
 
     window.addEventListener("load", run);
     window.addEventListener("resize", debounce(run, 150));
@@ -79,6 +92,12 @@ export function startPageObservers(run, { isPipelineRunning = () => false } = {}
     const observer = new MutationObserver((records) => {
         if (shouldIgnoreMutationRecords(records, isPipelineRunning())) {
             return;
+        }
+
+        const addedVideoElements = getAddedVideoElements(records);
+        if (addedVideoElements.length > 0) {
+            addedVideoElements.forEach((videoElement) => pendingAddedVideoElements.add(videoElement));
+            flushAddedVideoElements();
         }
 
         debouncedRun();

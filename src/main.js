@@ -102,4 +102,10 @@ startPageObservers(() => {
     invokePipeline();
 }, {
     isPipelineRunning,
+    getAddedVideoElements: (records) => domAdapter.getVideoElementsFromMutationRecords(records),
+    onAddedVideoElements: (videoElements) => {
+        videoElements.forEach((videoElement) => {
+            runtimeContext.rerunVideoCard(videoElement);
+        });
+    },
 });
