@@ -163,6 +163,11 @@ export function createBlockedRenderer() {
 
 const commentFilterOverlays = new WeakMap();
 
+// peeking 状态的唯一事实来源用 WeakSet 维护，避免写进 DOM dataset 后被 re-evaluation
+// （resize / MutationObserver / settling retry 触发的 restoreCommentElement）顺手清掉，
+// 导致用户还在悬停的评论在重跑渲染时丢失 peek。
+const peekingCommentElements = new WeakSet();
+
 function blockCommentElement(commentElement, blockResult, { mode = "overlay", reasonItems = [] } = {}) {
     const reason = blockResult.reason || blockResult.type || "命中评论规则";
     const commentKey = getCommentBypassKey(commentElement, blockResult);
@@ -182,7 +187,7 @@ function blockCommentElement(commentElement, blockResult, { mode = "overlay", re
 
     if (mode === "hide") {
         removeCommentOverlay(commentElement, commentKey);
-        clearCommentPeekState(commentElement);
+        endCommentPeek(commentElement);
         hideCommentElement(commentElement);
     } else {
         injectCommentFilterStyles(commentElement);
@@ -254,11 +259,7 @@ function ensureCommentOverlay(commentElement, { reason, commentKey = "", reasonI
         overlay.dataset.bbvtCommentOverlaySignature = overlaySignature;
     }
 
-    if (isCommentPeeking(commentElement)) {
-        overlay.dataset.bbvtCommentFilterPeeking = "true";
-    } else {
-        delete overlay.dataset.bbvtCommentFilterPeeking;
-    }
+    syncCommentPeekDataset(commentElement, overlay);
 
     overlay.onmousemove = (event) => {
         if (isCommentOverlayControlTarget(event?.target, overlay)) {
@@ -419,7 +420,9 @@ function restoreCommentElement(commentElement, { commentKey: restoreCommentKey =
     const overlay = commentFilterOverlays.get(commentElement);
     removeCommentOverlay(commentElement, commentKey);
 
-    clearCommentPeekState(commentElement, overlay);
+    // 评论不再命中规则时彻底恢复：overlay 已被移除，peek 也没有继续存在的意义，
+    // 这里同时清掉 WeakSet 与 DOM 标记，确保下次重新命中时是干净的初始态。
+    endCommentPeek(commentElement, overlay);
     showCommentElement(commentElement);
     delete commentElement.dataset.bbvtCommentKey;
 }
@@ -468,31 +471,53 @@ function peekCommentElement(commentElement, overlay) {
         return;
     }
 
-    commentElement.dataset.bbvtCommentFilterPeeking = "true";
-    overlay.dataset.bbvtCommentFilterPeeking = "true";
+    peekingCommentElements.add(commentElement);
+    if (overlay) {
+        commentFilterOverlays.set(commentElement, overlay);
+    }
+    syncCommentPeekDataset(commentElement, overlay);
     showCommentElement(commentElement, { keepBlockState: true });
 }
 
-function endCommentOverlayPeek(commentElement, overlay) {
+function endCommentOverlayPeek(commentElement, overlay = commentFilterOverlays.get(commentElement)) {
     if (!isCommentPeeking(commentElement)) {
         return;
     }
 
-    clearCommentPeekState(commentElement, overlay);
+    endCommentPeek(commentElement, overlay);
     if (commentElement.dataset.bbvtCommentBlocked === "true") {
         hideCommentElementForOverlay(commentElement);
     }
 }
 
-function clearCommentPeekState(commentElement, overlay = commentFilterOverlays.get(commentElement)) {
+// 真正结束 peek：只在鼠标离开、切换到 hide 模式、或评论彻底恢复时调用。
+// re-evaluation 期间被重新 block 的评论不会走到这里，因此 peek 能跨 resize 保持。
+function endCommentPeek(commentElement, overlay = commentFilterOverlays.get(commentElement)) {
+    peekingCommentElements.delete(commentElement);
     delete commentElement.dataset.bbvtCommentFilterPeeking;
     if (overlay) {
         delete overlay.dataset.bbvtCommentFilterPeeking;
     }
 }
 
+// 把 WeakSet 中的 peek 真值同步回 DOM dataset，仅供 CSS 选择器与 smoke 校验读取。
+// 重新渲染 overlay 时调用，确保 dataset 始终跟随唯一的 WeakSet 状态。
+function syncCommentPeekDataset(commentElement, overlay = commentFilterOverlays.get(commentElement)) {
+    if (isCommentPeeking(commentElement)) {
+        commentElement.dataset.bbvtCommentFilterPeeking = "true";
+        if (overlay) {
+            overlay.dataset.bbvtCommentFilterPeeking = "true";
+        }
+    } else {
+        delete commentElement.dataset.bbvtCommentFilterPeeking;
+        if (overlay) {
+            delete overlay.dataset.bbvtCommentFilterPeeking;
+        }
+    }
+}
+
 function isCommentPeeking(commentElement) {
-    return commentElement.dataset.bbvtCommentFilterPeeking === "true";
+    return peekingCommentElements.has(commentElement);
 }
 
 function getCommentBypassKey(commentElement, blockResult) {

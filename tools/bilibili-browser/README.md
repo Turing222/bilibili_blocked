@@ -52,6 +52,32 @@ The script activates the Chrome tab before scrolling. That matters on Bilibili:
 the page can be readable through CDP while lazy-loaded comments still refuse to
 load until the tab is active.
 
+## Smoke 命令对照（重要：注入关系）
+
+三个 `pw:*` 命令名容易误导。**只有名字里带 `timing` 的两个会注入我们构建的
+`dist/bilibili_blocked_videos_by_tags.user.js`**，`pw:smoke` 不注入，验证不了任何
+脚本改动。
+
+| 命令 | 注入 userscript？ | 实际验证内容 | 能否验证脚本改动 |
+|---|---|---|---|
+| `npm run pw:smoke` | ❌ 不注入 | 仅探针：连 CDP、开视频页、抓 `bili-comments` 组件快照、监听 `/x/v2/reply` 接口响应 | ❌ 只测页面环境/网络，与我们的脚本无关，不能用来验脚本是否被改坏 |
+| `npm run pw:comment-timing` | ✅ 注入 dist | 端到端：评论关键词屏蔽 -> hover peek -> resize 刷新后 peek 保持 -> 离开 -> 移除规则 -> 关脚本恢复 | ✅ 测评论屏蔽全流程 |
+| `npm run pw:video-card-timing` | ✅ 注入 dist | 端到端：视频卡片标题规则屏蔽 overlay 时序 + 滚动 fast-path + pipeline 重跑翻转 | ✅ 测视频卡片屏蔽全流程 |
+
+想验证"脚本改动有没有把脚本跑炸"，用 `pw:video-card-timing`（视频侧）或
+`pw:comment-timing`（评论侧）。`pw:smoke` 只适合确认浏览器/页面/网络健康。
+
+两个 `timing` 命令虽然名字只提"时序"，实际都是端到端功能 smoke，时序只是其中一环。
+
+`pw:comment-timing` / `pw:video-card-timing` 都支持参数覆盖：
+
+```powershell
+npm run pw:comment-timing -- --video https://www.bilibili.com/video/BVxxxx/
+npm run pw:comment-timing -- --no-inject          # 只跑流程不注入脚本（用于对照页面本身行为）
+npm run pw:video-card-timing -- --url https://www.bilibili.com/
+npm run pw:video-card-timing -- --userscript path/to/other.user.js
+```
+
 Current Bilibili comments are Web Components, not plain page-level DOM:
 
 ```text

@@ -49,6 +49,83 @@ describe("comment renderer block modes", () => {
         assert.equal(overlay.dataset.bbvtCommentFilterPeeking, undefined);
     });
 
+    it("keeps the hover peek across a re-evaluation that re-blocks the same comment (resize/refresh)", () => {
+        setupDom();
+
+        const renderer = createBlockedRenderer();
+        const parent = document.createElement("div");
+        document.body.appendChild(parent);
+
+        const comment = document.createElement("bili-comment-renderer");
+        parent.appendChild(comment);
+
+        const blockResult = {
+            blocked: true,
+            reason: "按评论内容屏蔽: test",
+            commentKey: JSON.stringify(["reeval", "user", "comment text"]),
+        };
+
+        renderer.renderCommentBlockedState(comment, blockResult);
+        const overlay = parent.querySelector(".bbvt-comment-filter-overlay");
+        assert.equal(comment.style.visibility, "hidden");
+
+        overlay.onmousemove({ target: overlay });
+        assert.equal(comment.style.visibility, "");
+        assert.equal(overlay.dataset.bbvtCommentFilterPeeking, "true");
+
+        // resize / MutationObserver 触发的重跑：同一条评论仍命中、仍被 block。
+        // 旧行为会把 peek dataset 顺手清掉，导致评论被重新藏起来；现在必须保持 peek。
+        renderer.renderCommentBlockedState(comment, blockResult);
+        assert.equal(comment.style.visibility, "");
+        assert.equal(overlay.dataset.bbvtCommentFilterPeeking, "true");
+
+        // 重跑期间还可能对其它评论走 restore（blocked=false）路径，不应波及当前 peek。
+        const otherComment = document.createElement("bili-comment-renderer");
+        parent.appendChild(otherComment);
+        const otherBlockResult = {
+            blocked: true,
+            reason: "按评论内容屏蔽: other",
+            commentKey: JSON.stringify(["reeval-other", "user", "other text"]),
+        };
+        renderer.renderCommentBlockedState(otherComment, otherBlockResult);
+        renderer.renderCommentBlockedState(comment, blockResult);
+        assert.equal(comment.style.visibility, "");
+        assert.equal(overlay.dataset.bbvtCommentFilterPeeking, "true");
+
+        // 真正离开 overlay 才结束 peek。
+        overlay.onmouseleave();
+        assert.equal(comment.style.visibility, "hidden");
+        assert.equal(overlay.dataset.bbvtCommentFilterPeeking, undefined);
+    });
+
+    it("ends the hover peek only when the comment is genuinely restored (blocked=false)", () => {
+        setupDom();
+
+        const renderer = createBlockedRenderer();
+        const parent = document.createElement("div");
+        document.body.appendChild(parent);
+
+        const comment = document.createElement("bili-comment-renderer");
+        parent.appendChild(comment);
+
+        const blockResult = {
+            blocked: true,
+            reason: "按评论内容屏蔽: test",
+            commentKey: JSON.stringify(["restore", "user", "comment text"]),
+        };
+
+        renderer.renderCommentBlockedState(comment, blockResult);
+        const overlay = parent.querySelector(".bbvt-comment-filter-overlay");
+        overlay.onmousemove({ target: overlay });
+        assert.equal(overlay.dataset.bbvtCommentFilterPeeking, "true");
+
+        // 规则被移除 / 总开关关闭：评论彻底恢复，peek 必须清干净。
+        renderer.renderCommentBlockedState(comment, { blocked: false, commentKey: blockResult.commentKey });
+        assert.equal(comment.style.visibility, "");
+        assert.equal(comment.dataset.bbvtCommentFilterPeeking, undefined);
+        assert.equal(parent.querySelectorAll(".bbvt-comment-filter-overlay").length, 0);
+    });
+
     it("renders removable reason chips that remain available while peeking", () => {
         setupDom();
 
