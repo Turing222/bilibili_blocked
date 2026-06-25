@@ -25,6 +25,8 @@ import {
 import { consoleLogOutput } from "../utils/log.js";
 
 const API_RETRY_DELAY_MS = 3000;
+const COMMENT_QUEUE_INTERVAL_MS = 100;
+const COMMENT_QUEUE_MAX_INTERVAL_MS = 2000;
 
 let getApiSettings = () => ({ accumulateBlockedRules_Switch: false });
 
@@ -38,7 +40,6 @@ function shouldSkipApiWhenBlocked(videoBv, videoStore) {
 }
 
 export function createBilibiliApiClient() {
-    let apiRequestDelayTime = 0;
     let refreshCallback = () => {};
     const apiHealth = createApiHealthStore();
     const regionNameCache = {};
@@ -46,6 +47,10 @@ export function createBilibiliApiClient() {
     const inFlightTagFetches = new Map();
     const inFlightCommentFetches = new Map();
     const inFlightUpInfoFetches = new Map();
+
+    const commentRequestQueue = new Set();
+    let commentQueueTimer = null;
+    let commentQueueInFlight = false;
 
     function getFallbackRegionName(regionId) {
         return regionId ? `rid:${regionId}` : "";
@@ -148,11 +153,11 @@ export function createBilibiliApiClient() {
                 videoPartitions: videoPartitionName || getFallbackRegionName(videoPartitionId),
                 videoView,
                 videoLike,
-                videoLikesRate: ((videoLike / videoView) * 100).toFixed(2),
+                videoLikesRate: safeRatio(videoLike, videoView, 100),
                 videoCoin,
-                videoCoinRate: ((videoCoin / videoView) * 100).toFixed(2),
+                videoCoinRate: safeRatio(videoCoin, videoView, 100),
                 videoFavorite,
-                videoFavoriteCoinRatio: (videoFavorite / videoCoin).toFixed(2),
+                videoFavoriteCoinRatio: safeRatio(videoFavorite, videoCoin, 1),
                 videoChargingExclusive: data.is_upower_exclusive,
                 videoResolution: {
                     width: data.dimension?.width || 0,
@@ -659,32 +664,64 @@ export function createBilibiliApiClient() {
             }
 
             videoStore.mergeVideoInfo(videoBv, {
-                lastVideoCommentsApiRequestTime: new Date(currentTime.getTime() + apiRequestDelayTime),
+                lastVideoCommentsApiRequestTime: new Date(),
             });
             markVideoDataState(videoBv, videoStore, API_DATA_KEYS.VIDEO_COMMENTS, API_DATA_STATUS.PENDING, {
                 capabilityId: CAPABILITY_IDS.COMMENT_API,
                 endpointId: API_ENDPOINT_IDS.COMMENT_MAIN,
             });
 
-            const apiRequestDelayTimeMax = countPendingComments(videoStore.videoInfoDict) * 100;
-            if (apiRequestDelayTime > apiRequestDelayTimeMax) {
-                apiRequestDelayTime = 0;
-            }
-
-            setTimeout(() => {
-                fetchVideoComments(videoBv, videoStore, { force: true })
-                    .then((commentData) => {
-                        if (commentData) {
-                            videoStore.mergeVideoInfo(videoBv, commentData);
-                        }
-
-                        refreshCallback();
-                    });
-            }, apiRequestDelayTime);
-
-            apiRequestDelayTime = apiRequestDelayTime + 100;
+            commentRequestQueue.add(videoBv);
+            scheduleCommentQueue(videoStore);
         },
     };
+
+    function scheduleCommentQueue(videoStore) {
+        if (commentQueueTimer || commentQueueInFlight) {
+            return;
+        }
+
+        const interval = Math.min(
+            commentRequestQueue.size * COMMENT_QUEUE_INTERVAL_MS,
+            COMMENT_QUEUE_MAX_INTERVAL_MS
+        );
+
+        commentQueueTimer = setTimeout(() => {
+            commentQueueTimer = null;
+            drainCommentQueue(videoStore);
+        }, interval);
+    }
+
+    function drainCommentQueue(videoStore) {
+        if (commentQueueInFlight) {
+            return;
+        }
+
+        const nextBv = commentRequestQueue.values().next().value;
+        if (!nextBv) {
+            return;
+        }
+
+        commentRequestQueue.delete(nextBv);
+        commentQueueInFlight = true;
+
+        fetchVideoComments(nextBv, videoStore, { force: true })
+            .then((commentData) => {
+                if (commentData) {
+                    videoStore.mergeVideoInfo(nextBv, commentData);
+                }
+            })
+            .catch((error) => {
+                consoleLogOutput("comment queue processing failed:", error);
+            })
+            .finally(() => {
+                commentQueueInFlight = false;
+                refreshCallback();
+                if (commentRequestQueue.size > 0) {
+                    scheduleCommentQueue(videoStore);
+                }
+            });
+    }
 }
 
 function shouldRequestVideoData(videoBv, videoStore, dataKey, { allowReady = false } = {}) {
@@ -753,16 +790,6 @@ function partitionFromVideoInfo(info) {
     return { name, id };
 }
 
-function countPendingComments(videoInfoDict) {
-    let count = 0;
-    for (const videoBv in videoInfoDict) {
-        if (!Object.prototype.hasOwnProperty.call(videoInfoDict[videoBv], "filteredComments")) {
-            count++;
-        }
-    }
-    return count;
-}
-
 function readTopCommentMessage(commentData) {
     return commentData?.top?.upper?.content?.message || commentData?.upper?.top?.content?.message || "";
 }
@@ -777,4 +804,14 @@ function readApiCode(json) {
 
 function readApiMessage(json) {
     return json?.message || json?.msg || "";
+}
+
+function safeRatio(numerator, denominator, scale) {
+    const n = Number(numerator);
+    const d = Number(denominator);
+    if (!Number.isFinite(n) || !Number.isFinite(d) || d === 0) {
+        return null;
+    }
+
+    return Number(((n / d) * scale).toFixed(2));
 }

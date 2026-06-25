@@ -148,10 +148,16 @@ function runPipelineBody(context) {
     }
 
     const videoElements = context.domAdapter.getVideoElements();
+    const keepBvs = new Set();
 
     for (const videoElement of videoElements) {
-        runSingleVideoPipeline(pipelineContext, videoElement);
+        const videoRef = runSingleVideoPipeline(pipelineContext, videoElement);
+        if (videoRef?.videoBv) {
+            keepBvs.add(videoRef.videoBv);
+        }
     }
+
+    pipelineContext.videoStore.pruneStaleVideoInfo({ keepBvs });
 
     context.renderer.syncBlockedOverlayRects();
 
@@ -181,12 +187,12 @@ function runTrendingFeatures(context) {
 
 function runSingleVideoPipeline(context, videoElement) {
     if (context.domAdapter.isAlreadyBlockedChildElement(videoElement)) {
-        return;
+        return null;
     }
 
     const videoRef = context.domAdapter.readVideoRef(videoElement);
     if (!videoRef) {
-        return;
+        return null;
     }
 
     const videoContext = {
@@ -228,6 +234,7 @@ function runSingleVideoPipeline(context, videoElement) {
     }
 
     context.renderer.renderVideoBlockedState(videoContext);
+    return videoRef;
 }
 
 function isPipelineScriptEnabled(settings) {

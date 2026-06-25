@@ -21,6 +21,13 @@
 import { consoleLogOutput, objectDifferent } from "../utils/log.js";
 import { safeRegexTest } from "../utils/regex.js";
 
+const FAV_COIN_RATIO_MIN_VIEWS = 5000;
+const FAV_COIN_RATIO_MIN_FAVORITES = 50;
+const FAV_COIN_RATIO_MIN_AGE_SECONDS = 7200;
+// 视频卡片滚出视口后，缓存保留的宽限期：在此窗口内滚回视口可直接复用缓存，
+// 避免重新拉 API + 重跑规则导致的 overlay 闪烁。超过宽限期才真正 prune。
+const STALE_VIDEO_INFO_GRACE_MS = 60_000;
+
 export function createVideoStore(onRuleHit) {
     const videoInfoDict = {};
     const videoUpInfoDict = {};
@@ -31,9 +38,15 @@ export function createVideoStore(onRuleHit) {
         videoUpInfoDict,
 
         mergeVideoInfo(videoBv, nextInfo) {
+            const previous = videoInfoDict[videoBv];
+            // 调用方一般不传 lastSeenAt，此时刷新为当前时间；若显式传入（如测试做时间旅行）则尊重之。
+            const lastSeenAt = nextInfo && Object.prototype.hasOwnProperty.call(nextInfo, "lastSeenAt")
+                ? nextInfo.lastSeenAt
+                : Date.now();
             videoInfoDict[videoBv] = {
-                ...videoInfoDict[videoBv],
+                ...previous,
                 ...nextInfo,
+                lastSeenAt,
             };
         },
 
@@ -197,6 +210,22 @@ export function createVideoStore(onRuleHit) {
                 videoInfo.blockedTarget = false;
                 videoInfo.triggeredBlockedRules = [];
                 videoInfo.blockedReasons = [];
+            }
+        },
+
+        pruneStaleVideoInfo({ keepBvs = new Set() } = {}) {
+            const keepSet = keepBvs instanceof Set ? keepBvs : new Set(keepBvs);
+            const now = Date.now();
+            for (const videoBv in videoInfoDict) {
+                if (keepSet.has(videoBv)) {
+                    continue;
+                }
+                // 宽限期内的条目保留：滚出视口后短期内滚回可直接复用缓存，避免 overlay 闪烁。
+                const lastSeenAt = videoInfoDict[videoBv]?.lastSeenAt;
+                if (typeof lastSeenAt === "number" && now - lastSeenAt < STALE_VIDEO_INFO_GRACE_MS) {
+                    continue;
+                }
+                delete videoInfoDict[videoBv];
             }
         },
     };
@@ -371,49 +400,57 @@ export function createVideoStore(onRuleHit) {
     }
 
     function applyBelowLikesRateRule(videoInfo, settings) {
-        if (!settings.blockedBelowLikesRate_Switch || settings.blockedBelowLikesRate <= 0 || !videoInfo.videoLikesRate) {
+        if (!settings.blockedBelowLikesRate_Switch || settings.blockedBelowLikesRate <= 0) {
+            return;
+        }
+
+        // safeRatio 只在数据缺失/分母为 0 时返回 null；真实的 0% 点赞率必须能命中低点赞率规则。
+        if (videoInfo.videoLikesRate == null) {
             return;
         }
 
         if (settings.blockedBelowLikesRate > videoInfo.videoLikesRate) {
-            markAsBlockedTarget(videoInfo, settings, "屏蔽低点赞率", videoInfo.videoLikesRate + "%");
+            markAsBlockedTarget(videoInfo, settings, "屏蔽低点赞率", formatRatio(videoInfo.videoLikesRate) + "%");
         }
     }
 
     function applyBelowCoinRateRule(videoInfo, settings) {
-        if (!settings.blockedBelowCoinRate_Switch || settings.blockedBelowCoinRate <= 0 || !videoInfo.videoCoinRate) {
+        if (!settings.blockedBelowCoinRate_Switch || settings.blockedBelowCoinRate <= 0) {
+            return;
+        }
+
+        if (videoInfo.videoCoinRate == null) {
             return;
         }
 
         if (settings.blockedBelowCoinRate > videoInfo.videoCoinRate) {
-            markAsBlockedTarget(videoInfo, settings, "屏蔽低投币率", videoInfo.videoCoinRate + "%");
+            markAsBlockedTarget(videoInfo, settings, "屏蔽低投币率", formatRatio(videoInfo.videoCoinRate) + "%");
         }
     }
 
     function applyAboveFavoriteCoinRatioRule(videoInfo, settings) {
-        if (
-            !settings.blockedAboveFavoriteCoinRatio_Switch ||
-            settings.blockedAboveFavoriteCoinRatio <= 0 ||
-            !videoInfo.videoFavoriteCoinRatio
-        ) {
+        if (!settings.blockedAboveFavoriteCoinRatio_Switch || settings.blockedAboveFavoriteCoinRatio <= 0) {
             return;
         }
 
-        if (videoInfo.videoView < 5000 || videoInfo.videoFavorite < 50) {
+        if (videoInfo.videoView < FAV_COIN_RATIO_MIN_VIEWS || videoInfo.videoFavorite < FAV_COIN_RATIO_MIN_FAVORITES) {
             return;
         }
 
         const currentTimeInSeconds = Math.floor(Date.now() / 1000);
-        if (currentTimeInSeconds - videoInfo.videoPubdate < 7200) {
+        if (currentTimeInSeconds - videoInfo.videoPubdate < FAV_COIN_RATIO_MIN_AGE_SECONDS) {
             return;
         }
 
-        if (videoInfo.videoFavoriteCoinRatio > settings.blockedAboveFavoriteCoinRatio) {
+        // safeRatio 在投币为 0 时返回 null；此时若有足够收藏，收藏/投币比趋近无穷，直接命中高比值规则。
+        const ratio = videoInfo.videoFavoriteCoinRatio == null ? Number.POSITIVE_INFINITY : videoInfo.videoFavoriteCoinRatio;
+
+        if (ratio > settings.blockedAboveFavoriteCoinRatio) {
             markAsBlockedTarget(
                 videoInfo,
                 settings,
                 "屏蔽高收藏投币比",
-                videoInfo.videoFavoriteCoinRatio + "\nUP主: " + videoInfo.videoUpName
+                (Number.isFinite(ratio) ? formatRatio(ratio) : "∞") + "\nUP主: " + videoInfo.videoUpName
             );
         }
     }
@@ -919,5 +956,13 @@ export function createVideoStore(onRuleHit) {
 
     function normalizeReasonValue(value) {
         return value === undefined || value === null ? "" : String(value);
+    }
+
+    function formatRatio(value) {
+        const number = Number(value);
+        if (!Number.isFinite(number)) {
+            return "";
+        }
+        return number.toFixed(2);
     }
 }
