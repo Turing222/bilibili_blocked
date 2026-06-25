@@ -22,6 +22,7 @@ export function createRuntimeContext(parts) {
         renderer: parts.renderer,
         cardActions: parts.cardActions,
         features: parts.features,
+        floatingEntry: parts.floatingEntry || null,
         hooks: parts.hooks || {},
         refresh: parts.refresh || (() => {}),
         rerunVideoCard: parts.rerunVideoCard || (() => {}),

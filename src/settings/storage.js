@@ -17,8 +17,13 @@
 
 import { defaultSettings } from "./defaults.js";
 import { normalizeContextMenuScriptModifier } from "../utils/context-menu-modifier.js";
+import { featureRuleMetadataByType } from "./rule-metadata.js";
 
 const storageKey = "GM_blockedParameter";
+
+const numericSettingKeys = Object.values(featureRuleMetadataByType)
+    .filter((metadata) => metadata.kind === "number" && metadata.valueKey)
+    .map((metadata) => metadata.valueKey);
 
 export function createSettingsStore() {
     let currentSettings = loadSettings();
@@ -67,7 +72,9 @@ function normalizeSettings(settings) {
     oldParameterAdaptation(settingsCopy);
     normalizeUpIdentitySettings(settingsCopy);
     normalizePartitionSettings(settingsCopy);
+    normalizeArraySettings(settingsCopy);
     normalizeUiFeatureSwitches(settingsCopy);
+    normalizeNumericSettings(settingsCopy);
 
     settingsCopy.contextMenuScriptModifier = normalizeContextMenuScriptModifier(
         settingsCopy.contextMenuScriptModifier ?? settingsCopy.contextMenuNativeModifier
@@ -116,6 +123,31 @@ function normalizePartitionSettings(obj) {
             return name || (id ? `rid:${id}` : "");
         })
         .filter(Boolean);
+}
+
+function normalizeArraySettings(obj) {
+    for (const key in defaultSettings) {
+        if (!key.endsWith("_Array") || !Array.isArray(defaultSettings[key])) {
+            continue;
+        }
+
+        if (Array.isArray(obj[key])) {
+            continue;
+        }
+
+        obj[key] = [];
+    }
+}
+
+function normalizeNumericSettings(obj) {
+    for (const key of numericSettingKeys) {
+        if (!(key in obj)) {
+            continue;
+        }
+
+        const number = Number(obj[key]);
+        obj[key] = Number.isFinite(number) ? number : 0;
+    }
 }
 
 function normalizeUpIdentitySettings(obj) {

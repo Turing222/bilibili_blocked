@@ -7,6 +7,10 @@ const rootDir = path.resolve(__dirname, "..");
 const entryFile = path.join(rootDir, "src", "main.js");
 const headerFile = path.join(rootDir, "scripts", "userscript-header.template.js");
 const outputFile = path.join(rootDir, "dist", "bilibili_blocked_videos_by_tags.user.js");
+const requireBodyFile = path.join(rootDir, "dist", "bilibili_blocked.dev.body.js");
+
+const args = process.argv.slice(2);
+const requireMode = args.includes("--require");
 
 const importRegex = /^\s*import\s+[^;]+from\s+["'](.+?)["'];\s*$/gm;
 const importLineRegex = /^\s*import\s+[^;]+;\s*$/gm;
@@ -19,19 +23,25 @@ await collectModule(entryFile);
 
 const header = (await readFile(headerFile, "utf8")).trimEnd();
 const body = chunks.join("\n\n");
-const output = `${header}
-
-(function () {
+const iifeBody = `(function () {
 "use strict";
 
 ${body}
-})();
+})();`;
+
+await mkdir(path.dirname(requireMode ? requireBodyFile : outputFile), { recursive: true });
+
+if (requireMode) {
+    await writeFile(requireBodyFile, `${iifeBody}\n`, "utf8");
+    console.log(`Built ${path.relative(rootDir, requireBodyFile)} (header-less body for @require)`);
+} else {
+    const output = `${header}
+
+${iifeBody}
 `;
-
-await mkdir(path.dirname(outputFile), { recursive: true });
-await writeFile(outputFile, output, "utf8");
-
-console.log(`Built ${path.relative(rootDir, outputFile)}`);
+    await writeFile(outputFile, output, "utf8");
+    console.log(`Built ${path.relative(rootDir, outputFile)}`);
+}
 
 async function collectModule(filePath) {
     const normalizedPath = path.normalize(filePath);

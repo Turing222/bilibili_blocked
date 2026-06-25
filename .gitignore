@@ -1,3 +1,5 @@
 node_modules/
 .eslintcache
 artifacts/
+# 仅忽略构建中间产物，正式发布产物 dist/*.user.js 仍入库供用户直接安装。
+dist/*.dev.body.js

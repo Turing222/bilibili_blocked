@@ -4,14 +4,15 @@
   "license": "CC-BY-NC-SA-4.0",
   "type": "module",
   "scripts": {
-    "build": "chcp 65001>nul && node scripts/build-userjs.mjs",
-    "test": "chcp 65001>nul && node --test tests/*.test.js",
-    "check": "chcp 65001>nul && node scripts/build-userjs.mjs && node --check dist/bilibili_blocked_videos_by_tags.user.js && npm.cmd run test",
-    "lint": "chcp 65001>nul && eslint src tests",
-    "pw:chrome": "chcp 65001>nul && powershell.exe -NoProfile -ExecutionPolicy Bypass -File tools\\bilibili-browser\\start-chrome.ps1",
-    "pw:smoke": "chcp 65001>nul && node scripts/playwright-smoke.mjs",
-    "pw:comment-timing": "chcp 65001>nul && node scripts/comment-timing-smoke.mjs",
-    "pw:video-card-timing": "chcp 65001>nul && node scripts/video-card-timing-smoke.mjs"
+    "build": "node scripts/build-userjs.mjs",
+    "build:require": "node scripts/build-userjs.mjs --require",
+    "test": "node --test tests/*.test.js",
+    "check": "node scripts/build-userjs.mjs && node --check dist/bilibili_blocked_videos_by_tags.user.js && npm run test",
+    "lint": "eslint src tests",
+    "pw:chrome": "powershell.exe -NoProfile -ExecutionPolicy Bypass -File tools/bilibili-browser/start-chrome.ps1",
+    "pw:smoke": "node scripts/playwright-smoke.mjs",
+    "pw:comment-timing": "node scripts/comment-timing-smoke.mjs",
+    "pw:video-card-timing": "node scripts/video-card-timing-smoke.mjs"
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",

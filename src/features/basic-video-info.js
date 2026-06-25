@@ -17,7 +17,7 @@ export const basicVideoInfoFeature = {
     name: "basic-video-info",
     enabled: () => true,
     run: ({ videoBv, videoElement, domAdapter, videoStore }) => {
-        const domInfo = domAdapter.readVideoBasicInfo(videoElement, videoBv);
+        const domInfo = domAdapter.readVideoBasicInfo(videoElement);
         videoStore.mergeVideoInfo(videoBv, domInfo);
     },
 };

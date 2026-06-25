@@ -154,17 +154,16 @@ export function createBilibiliDomAdapter() {
                     continue;
                 }
 
-                const videoAvTemp = videoLinkElement.href.match(/\/(av)(\d+)/);
-                if (videoAvTemp) {
-                    videoBv = av2bv(videoAvTemp[2]);
-                }
-
                 const videoBvTemp = videoLinkElement.href.match(/\/(BV\w+)/);
                 if (videoBvTemp) {
                     videoBv = videoBvTemp[1];
+                    videoLink = videoLinkElement.href;
+                    continue;
                 }
 
-                if (videoBv) {
+                const videoAvTemp = videoLinkElement.href.match(/\/(av)(\d+)/);
+                if (videoAvTemp) {
+                    videoBv = av2bv(videoAvTemp[2]);
                     videoLink = videoLinkElement.href;
                 }
             }
@@ -257,24 +256,30 @@ export function createBilibiliDomAdapter() {
 
         hideNonVideoElements() {
             if (window.location.href.startsWith("https://www.bilibili.com/")) {
-                document
-                    .querySelectorAll(
-                        `div.floor-single-card,
-                        div.feed-card:has(a[href^="//cm.bilibili.com/"]),
-                        div.bili-feed-card:has(a[href^="//cm.bilibili.com/"]),
-                        div.bili-feed-card:has(a[href^="https://live.bilibili.com/"])`
-                    )
-                    .forEach((el) => el.classList.add("hideAD"));
+                hideElementsBySelector(
+                    `div.floor-single-card,
+                    div.feed-card:has(a[href^="//cm.bilibili.com/"]),
+                    div.bili-feed-card:has(a[href^="//cm.bilibili.com/"]),
+                    div.bili-feed-card:has(a[href^="https://live.bilibili.com/"])`,
+                    `div.floor-single-card, div.feed-card, div.bili-feed-card`,
+                    (el) =>
+                        el.querySelector(`a[href^="//cm.bilibili.com/"], a[href^="https://live.bilibili.com/"]`),
+                    (el) => el.classList.add("hideAD")
+                );
             }
 
             if (window.location.href.startsWith("https://search.bilibili.com/all")) {
-                document
-                    .querySelectorAll(
-                        `div.bili-video-card:has(a[href^="https://www.bilibili.com/cheese/"]),
-                        div.bili-video-card:has(a[href^="//cm.bilibili.com/"]),
-                        div.bili-video-card:has(a[href^="//live.bilibili.com/"])`
-                    )
-                    .forEach((el) => el.parentNode.classList.add("hideAD"));
+                hideElementsBySelector(
+                    `div.bili-video-card:has(a[href^="https://www.bilibili.com/cheese/"]),
+                    div.bili-video-card:has(a[href^="//cm.bilibili.com/"]),
+                    div.bili-video-card:has(a[href^="//live.bilibili.com/"])`,
+                    `div.bili-video-card`,
+                    (el) =>
+                        el.querySelector(
+                            `a[href^="https://www.bilibili.com/cheese/"], a[href^="//cm.bilibili.com/"], a[href^="//live.bilibili.com/"]`
+                        ),
+                    (el) => el.parentNode?.classList.add("hideAD")
+                );
             }
 
             if (window.location.href.startsWith("https://www.bilibili.com/video/")) {
@@ -293,6 +298,17 @@ export function createBilibiliDomAdapter() {
             }
         },
     };
+}
+
+function hideElementsBySelector(selector, fallbackSelector, matchesPredicate, applyFn) {
+    let elements;
+    try {
+        elements = document.querySelectorAll(selector);
+    } catch {
+        // :has() 等选择器不被支持时浏览器抛 SyntaxError，降级为父选择器 + 二次过滤
+        elements = [...(document.querySelectorAll(fallbackSelector) || [])].filter(matchesPredicate);
+    }
+    elements.forEach(applyFn);
 }
 
 function readCommentText(commentElement) {
