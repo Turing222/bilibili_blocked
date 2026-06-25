@@ -1,4 +1,5 @@
 import { quickBlockVideo } from "../actions/quick-block.js";
+import { createBlockedOverlayRestoreHandler } from "./renderer.js";
 import { shouldOpenScriptContextMenu } from "../utils/context-menu-modifier.js";
 import { isMasterSwitchEnabled } from "../utils/script-enabled.js";
 
@@ -25,7 +26,15 @@ export function createCardActions() {
                 const videoInfo = context.videoStore.getVideoInfo(videoBv);
                 if (videoInfo && videoInfo.blockedTarget) {
                     if (typeof window.bbvtShowHoverReviewPanel === "function") {
-                        window.bbvtShowHoverReviewPanel(context, videoBv, videoElement, undefined, event.clientX, event.clientY);
+                        const restoreOverlay = createBlockedOverlayRestoreHandler(videoElement);
+                        window.bbvtShowHoverReviewPanel(
+                            context,
+                            videoBv,
+                            videoElement,
+                            restoreOverlay,
+                            event.clientX,
+                            event.clientY
+                        );
                     }
                 } else {
                     quickBlockVideo(context, videoBv, videoElement, event.clientX, event.clientY);

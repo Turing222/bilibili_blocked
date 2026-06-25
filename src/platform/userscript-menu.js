@@ -111,6 +111,7 @@ const displayInteractionControls = [
     booleanControl("隐藏非视频元素", "hideNonVideoElements_Switch"),
     booleanControl("叠加层只显示命中类型", "blockedOverlayOnlyDisplaysType_Switch"),
     booleanControl("隐藏视频而不是显示叠加层", "hideVideoMode_Switch"),
+    booleanControl("保留 card-box 延迟叠加动画", "legacyCardBoxOverlayDelay_Switch"),
     booleanControl("隐藏菜单中的屏蔽词", "hideBlockedWordsInMenu_Switch"),
 ];
 

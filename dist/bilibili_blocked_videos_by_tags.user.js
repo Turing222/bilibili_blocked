@@ -306,8 +306,7 @@ function isMasterSwitchEnabled(context) {
 }
 
 // ---- src/actions/quick-block.js ----
-const quickBlockId = "bbvtQuickBlock";
-function closeQuickBlockOverlay() {
+const quickBlockId = "bbvtQuickBlock";function closeQuickBlockOverlay() {
     const existing = document.getElementById(quickBlockId);
     if (existing) {
         existing.remove();
@@ -317,8 +316,7 @@ function closeQuickBlockOverlay() {
         document.removeEventListener("mousedown", window.bbvtQuickBlockCloseHandler);
         window.bbvtQuickBlockCloseHandler = null;
     }
-}
-function quickBlockVideo(context, videoBv, videoElement, x = 0, y = 0) {
+}function quickBlockVideo(context, videoBv, videoElement, x = 0, y = 0) {
     if (!isMasterSwitchEnabled(context)) {
         return;
     }
@@ -359,7 +357,7 @@ function quickBlockVideo(context, videoBv, videoElement, x = 0, y = 0) {
         }
     };
     window.bbvtQuickBlockCloseHandler = closeHandler;
-    
+
     setTimeout(() => {
         document.addEventListener("mousedown", closeHandler);
     }, 0);
@@ -393,11 +391,19 @@ function quickBlockVideo(context, videoBv, videoElement, x = 0, y = 0) {
 }
 
 function renderQuickBlockPopup(overlay, context, state, videoBv, videoElement) {
-    overlay.replaceChildren();
+    if (!overlay._qbRefs) {
+        overlay._qbRefs = buildQuickBlockPopupShell(overlay, context, state, videoBv, videoElement);
+        positionQuickBlockOverlay(overlay, state, { animate: true });
+    }
 
+    syncQuickBlockPartitionSection(overlay._qbRefs, state);
+    syncQuickBlockTagsSection(overlay._qbRefs, state);
+    positionQuickBlockOverlay(overlay, state, { animate: false });
+}
+
+function buildQuickBlockPopupShell(overlay, context, state, videoBv, videoElement) {
     const panel = createQuickBlockEl("div", "qb-panel");
 
-    // header
     const header = createQuickBlockEl("div", "qb-header");
     const closeButton = createQuickBlockEl("button", "qb-close", "×");
     closeButton.addEventListener("click", () => overlay.remove());
@@ -437,6 +443,7 @@ function renderQuickBlockPopup(overlay, context, state, videoBv, videoElement) {
     titleField.appendChild(titleInput);
 
     const candidates = createQuickBlockEl("div", "qb-candidates");
+    const titleQuickBtn = createQuickBlockEl("button", "qb-quick-btn", "屏蔽");
     const updateTitleQuickBtn = () => {
         titleQuickBtn.disabled = !hasQuickBlockSelection(state.selectedTitleChips, state.titleValue);
     };
@@ -446,8 +453,6 @@ function renderQuickBlockPopup(overlay, context, state, videoBv, videoElement) {
         onChange: updateTitleQuickBtn,
     });
     titleField.appendChild(candidates);
-
-    const titleQuickBtn = createQuickBlockEl("button", "qb-quick-btn", "屏蔽");
     titleInput.addEventListener("input", updateTitleQuickBtn);
     updateTitleQuickBtn();
     titleQuickBtn.addEventListener("click", () => {
@@ -462,14 +467,8 @@ function renderQuickBlockPopup(overlay, context, state, videoBv, videoElement) {
 
     const partitionRow = createQuickBlockEl("div", "qb-row qb-action-row");
     partitionRow.appendChild(createQuickBlockEl("div", "qb-row-label", "分区"));
-    const partitionValue = getPartitionBlockValue(state);
-    const partitionInfo = createQuickBlockEl(
-        "div",
-        state.partitionLoading ? "qb-info qb-info-muted" : "qb-info",
-        state.partitionLoading ? "分区加载中..." : getPartitionDisplayText(state)
-    );
+    const partitionInfo = createQuickBlockEl("div", "qb-info qb-info-muted", "分区加载中...");
     const partitionQuickBtn = createQuickBlockEl("button", "qb-quick-btn", "屏蔽");
-    partitionQuickBtn.disabled = state.partitionLoading || !partitionValue;
     partitionQuickBtn.addEventListener("click", () => {
         const value = getPartitionBlockValue(state);
         if (!value) return;
@@ -484,68 +483,94 @@ function renderQuickBlockPopup(overlay, context, state, videoBv, videoElement) {
     tagsRow.appendChild(createQuickBlockEl("div", "qb-row-label", "标签"));
     const chipsContainer = createQuickBlockEl("div", "qb-chips");
     const tagsQuickBtn = createQuickBlockEl("button", "qb-quick-btn", "屏蔽");
+    tagsQuickBtn.addEventListener("click", () => {
+        const values = [...state.selectedTags];
+        if (values.length === 0) return;
+        commitQuickBlock(context, videoElement, videoBv, () => {
+            appendBlockedTags(context.settingsStore, values);
+        });
+        overlay.remove();
+    });
+    tagsRow.append(chipsContainer, tagsQuickBtn);
+
+    body.append(upRow, titleRow, partitionRow, tagsRow);
+    panel.append(header, body);
+    overlay.appendChild(panel);
+
+    return {
+        panel,
+        partitionInfo,
+        partitionQuickBtn,
+        chipsContainer,
+        tagsQuickBtn,
+    };
+}
+
+function syncQuickBlockPartitionSection(refs, state) {
+    const { partitionInfo, partitionQuickBtn } = refs;
+    const partitionValue = getPartitionBlockValue(state);
+
+    partitionInfo.className = state.partitionLoading ? "qb-info qb-info-muted" : "qb-info";
+    partitionInfo.textContent = state.partitionLoading ? "分区加载中..." : getPartitionDisplayText(state);
+    partitionQuickBtn.disabled = state.partitionLoading || !partitionValue;
+}
+
+function syncQuickBlockTagsSection(refs, state) {
+    const { chipsContainer, tagsQuickBtn } = refs;
+
+    chipsContainer.replaceChildren();
 
     if (state.tagsLoading) {
         chipsContainer.appendChild(createQuickBlockEl("span", "qb-hint", "标签加载中…"));
         tagsQuickBtn.disabled = true;
-    } else if (state.tags.length === 0) {
-        chipsContainer.appendChild(createQuickBlockEl("span", "qb-hint", "无可用标签"));
-        tagsQuickBtn.disabled = true;
-    } else {
-        const updateTagsQuickBtn = () => {
-            tagsQuickBtn.disabled = state.selectedTags.size === 0;
-        };
-        renderMultiSelectChips(chipsContainer, state.tags, state.selectedTags, {
-            chipClass: "qb-chip qb-chip-action",
-            selectedClass: "qb-chip-selected",
-            emptyHint: "无可用标签",
-            onChange: updateTagsQuickBtn,
-        });
-        updateTagsQuickBtn();
-        tagsQuickBtn.addEventListener("click", () => {
-            const values = [...state.selectedTags];
-            if (values.length === 0) return;
-            commitQuickBlock(context, videoElement, videoBv, () => {
-                appendBlockedTags(context.settingsStore, values);
-            });
-            overlay.remove();
-        });
+        return;
     }
 
-    tagsRow.append(chipsContainer, tagsQuickBtn);
-    body.append(upRow, titleRow, partitionRow, tagsRow);
+    if (state.tags.length === 0) {
+        chipsContainer.appendChild(createQuickBlockEl("span", "qb-hint", "无可用标签"));
+        tagsQuickBtn.disabled = true;
+        return;
+    }
 
-    panel.append(header, body);
-    overlay.appendChild(panel);
+    const updateTagsQuickBtn = () => {
+        tagsQuickBtn.disabled = state.selectedTags.size === 0;
+    };
+    renderMultiSelectChips(chipsContainer, state.tags, state.selectedTags, {
+        chipClass: "qb-chip qb-chip-action",
+        selectedClass: "qb-chip-selected",
+        emptyHint: "无可用标签",
+        onChange: updateTagsQuickBtn,
+    });
+    updateTagsQuickBtn();
+}
 
+function positionQuickBlockOverlay(overlay, state, { animate = false } = {}) {
     const rect = overlay.getBoundingClientRect();
     const margin = 12;
     const offset = 10;
     let left = state.x + offset;
     let top = state.y + offset;
-    let originX = '0%';
-    let originY = '0%';
-    
+    let originX = "0%";
+    let originY = "0%";
+
     if (left + rect.width > window.innerWidth - margin) {
         left = state.x - rect.width - offset;
-        originX = '100%';
+        originX = "100%";
     }
     if (top + rect.height > window.innerHeight - margin) {
         top = state.y - rect.height - offset;
-        originY = '100%';
+        originY = "100%";
     }
 
     left = Math.max(margin, Math.min(left, window.innerWidth - rect.width - margin));
     top = Math.max(margin, Math.min(top, window.innerHeight - rect.height - margin));
-    
+
     overlay.style.left = `${left}px`;
     overlay.style.top = `${top}px`;
     overlay.style.transformOrigin = `${originX} ${originY}`;
-    
-    if (!state.animated) {
-        // Add animation after setting transform-origin to prevent flipping animation.
+
+    if (animate && !state.animated) {
         overlay.style.animation = "none";
-        // Force a reflow so transform-origin is registered before the animation starts.
         void overlay.offsetWidth;
         overlay.style.animation = "qbFadeIn 0.2s cubic-bezier(0.34, 1.56, 0.64, 1) forwards";
         state.animated = true;
@@ -3294,8 +3319,7 @@ function createFeatureRegistry() {
 //
 // 注意：
 // - 不在这里读写 GM_* API。
-// - 不在这里做旧配置兼容。
-const defaultSettings = {
+// - 不在这里做旧配置兼容。const defaultSettings = {
     uiFeatureSwitchVersion: 1,
     scriptEnabled_Switch: true,
 
@@ -3378,6 +3402,7 @@ const defaultSettings = {
     floatingEntryVisible_Switch: true,
     blockedOverlayOnlyDisplaysType_Switch: false,
     hideVideoMode_Switch: false,
+    legacyCardBoxOverlayDelay_Switch: false,
     consoleOutputLog_Switch: false,
     hideBlockedWordsInMenu_Switch: false,
     accumulateBlockedRules_Switch: false,
@@ -5817,8 +5842,7 @@ const commentObservedAttributeNames = [
     "uname",
     "user-id",
     "user-name",
-];
-function createBilibiliDomAdapter() {
+];function createBilibiliDomAdapter() {
     return {
         shouldSkipVideoBlocking(currentUrl) {
             return noBlockedVideoUrls.some((urlRule) => urlRule.test(currentUrl));
@@ -6637,9 +6661,22 @@ function av2bv(aid) {
 // - blockedOrUnblocked()
 // - addTrendingItemHiddenOrOverlay()
 // - syncBlockedOverlayAndParentNodeRect()
-
 let blockedOverlayGeneration = 0;
-function createBlockedRenderer() {
+
+const VIDEO_OVERLAY_STYLE_ID = "bbvtVideoBlockedOverlayStyles";function createBlockedOverlayRestoreHandler(videoElement) {
+    setVideoBlockedOverlayLocked(videoElement, true);
+    return () => setVideoBlockedOverlayLocked(videoElement, false);
+}function setVideoBlockedOverlayLocked(videoElement, locked) {
+    if (!videoElement?.dataset) {
+        return;
+    }
+
+    if (locked) {
+        videoElement.dataset.bbvtOverlayLocked = "true";
+    } else {
+        delete videoElement.dataset.bbvtOverlayLocked;
+    }
+}function createBlockedRenderer() {
     return {
         renderVideoBlockedState(videoContext) {
             const { settings, videoStore, statsStore, videoElement, videoBv } = videoContext;
@@ -7270,13 +7307,19 @@ function addHiddenOrOverlay(videoElement, videoInfo, settings, setTimeoutStatus 
         return;
     }
 
-    if (videoElement.firstElementChild?.className == "card-box" && setTimeoutStatus == false) {
+    const shouldDelayLegacyCardBoxOverlay =
+        settings.legacyCardBoxOverlayDelay_Switch === true &&
+        videoElement.firstElementChild?.className == "card-box" &&
+        setTimeoutStatus == false;
+
+    if (shouldDelayLegacyCardBoxOverlay) {
         videoElement.style.filter = "blur(5px)";
         markBlockedElement(videoElement, "pending");
 
         const generation = blockedOverlayGeneration;
         setTimeout(() => {
             if (generation !== blockedOverlayGeneration) {
+                cancelLegacyCardBoxPending(videoElement);
                 return;
             }
 
@@ -7290,6 +7333,8 @@ function addHiddenOrOverlay(videoElement, videoInfo, settings, setTimeoutStatus 
 
         return;
     }
+
+    injectVideoBlockedOverlayStyles();
 
     const elementRect = videoElement.getBoundingClientRect();
     const overlay = document.createElement("div");
@@ -7306,22 +7351,6 @@ function addHiddenOrOverlay(videoElement, videoInfo, settings, setTimeoutStatus 
     overlay.style.borderRadius = "6px";
     overlay.style.cursor = "pointer";
 
-    overlay.style.transition = "opacity 0.2s ease";
-
-    videoElement.addEventListener("mouseenter", () => {
-        if (overlay.parentNode === videoElement) {
-            overlay.style.opacity = "0";
-            overlay.style.pointerEvents = "none";
-        }
-    });
-
-    videoElement.addEventListener("mouseleave", () => {
-        if (overlay.parentNode === videoElement) {
-            overlay.style.opacity = "1";
-            overlay.style.pointerEvents = "auto";
-        }
-    });
-
     const overlayText = document.createElement("div");
     if (videoElement.firstElementChild?.className == "card-box") {
         overlayText.style.fontSize = "1.25em";
@@ -7330,12 +7359,61 @@ function addHiddenOrOverlay(videoElement, videoInfo, settings, setTimeoutStatus 
     overlayText.style.color = "rgb(250,250,250)";
     overlay.appendChild(overlayText);
 
+    videoElement.dataset.bbvtBlockedOverlayHost = "true";
     videoElement.insertAdjacentElement("afterbegin", overlay);
     markBlockedElement(videoElement, "true");
 }
 
+function cancelLegacyCardBoxPending(videoElement) {
+    if (videoElement?.dataset?.bbvtBlocked !== "pending") {
+        return;
+    }
+
+    videoElement.style.filter = "none";
+    clearBlockedElement(videoElement);
+}
+
+function clearVideoBlockedOverlayHostState(videoElement) {
+    delete videoElement.dataset.bbvtBlockedOverlayHost;
+    delete videoElement.dataset.bbvtOverlayLocked;
+}
+
+function injectVideoBlockedOverlayStyles() {
+    if (typeof document === "undefined") {
+        return;
+    }
+
+    if (document.getElementById(VIDEO_OVERLAY_STYLE_ID)) {
+        return;
+    }
+
+    const css = `
+        [data-bbvt-blocked-overlay-host="true"] > .blockedOverlay {
+            opacity: 1;
+            pointer-events: auto;
+            transition: opacity 0.2s ease;
+        }
+
+        [data-bbvt-blocked-overlay-host="true"]:hover:not([data-bbvt-overlay-locked="true"]) > .blockedOverlay {
+            opacity: 0;
+            pointer-events: none;
+        }
+
+        [data-bbvt-blocked-overlay-host="true"][data-bbvt-overlay-locked="true"] > .blockedOverlay {
+            opacity: 0;
+            pointer-events: none;
+        }
+    `;
+
+    const style = document.createElement("style");
+    style.id = VIDEO_OVERLAY_STYLE_ID;
+    style.textContent = css;
+    document.head.appendChild(style);
+}
+
 function removeHiddenOrOverlay(videoElement, settings) {
     videoElement.style.filter = "none";
+    clearVideoBlockedOverlayHostState(videoElement);
 
     if (settings?.hideVideoMode_Switch == true) {
         showVideoElement(videoElement);
@@ -7480,7 +7558,15 @@ function createCardActions() {
                 const videoInfo = context.videoStore.getVideoInfo(videoBv);
                 if (videoInfo && videoInfo.blockedTarget) {
                     if (typeof window.bbvtShowHoverReviewPanel === "function") {
-                        window.bbvtShowHoverReviewPanel(context, videoBv, videoElement, undefined, event.clientX, event.clientY);
+                        const restoreOverlay = createBlockedOverlayRestoreHandler(videoElement);
+                        window.bbvtShowHoverReviewPanel(
+                            context,
+                            videoBv,
+                            videoElement,
+                            restoreOverlay,
+                            event.clientX,
+                            event.clientY
+                        );
                     }
                 } else {
                     quickBlockVideo(context, videoBv, videoElement, event.clientX, event.clientY);
@@ -7743,10 +7829,6 @@ function injectStatsStyles() {
 // 不负责：
 // - 不执行屏蔽流程。
 // - 不写具体屏蔽规则。
-
-
-
-
 const menuId = "blockedMenuUi";
 
 const arrayKeyToStatsType = {
@@ -7841,6 +7923,7 @@ const displayInteractionControls = [
     booleanControl("隐藏非视频元素", "hideNonVideoElements_Switch"),
     booleanControl("叠加层只显示命中类型", "blockedOverlayOnlyDisplaysType_Switch"),
     booleanControl("隐藏视频而不是显示叠加层", "hideVideoMode_Switch"),
+    booleanControl("保留 card-box 延迟叠加动画", "legacyCardBoxOverlayDelay_Switch"),
     booleanControl("隐藏菜单中的屏蔽词", "hideBlockedWordsInMenu_Switch"),
 ];
 
@@ -7901,8 +7984,7 @@ const featureSwitchControls = [
     ...displayInteractionControls.filter((control) => control.type === "boolean"),
     ...apiExperimentControls,
     ...whitelistControls,
-];
-function registerUserscriptMenu(context) {
+];function registerUserscriptMenu(context) {
     injectMenuStyles();
     context.openSettingsPanel = (anchorRect) => toggleSettingsPanel(context, anchorRect);
     context.openStatsPanel = () => openStatsPanel(context);
@@ -9687,7 +9769,6 @@ function debounce(fn, ms) {
 // - window.addEventListener("load", ...)
 // - window.addEventListener("resize", ...)
 // - MutationObserver
-
 const SCRIPT_UI_SELECTOR = "#bbvtReviewPanel, #bbvtQuickBlock, #bbvtCommentQuickBlockTrigger, #bbvtCommentQuickBlockPopup, #blockedMenuUi, #bbvtFloatingEntry";
 
 function isScriptOwnedNode(node) {
@@ -9720,8 +9801,7 @@ function isScriptOwnedNode(node) {
     }
 
     return !!node.closest?.(SCRIPT_UI_SELECTOR);
-}
-function shouldIgnoreMutationRecords(records, isPipelineRunning) {
+}function shouldIgnoreMutationRecords(records, isPipelineRunning) {
     if (isPipelineRunning) {
         return true;
     }
@@ -9738,8 +9818,7 @@ function shouldIgnoreMutationRecords(records, isPipelineRunning) {
 
         return nodes.every(isScriptOwnedNode);
     });
-}
-function startPageObservers(run, { isPipelineRunning = () => false } = {}) {
+}function startPageObservers(run, { isPipelineRunning = () => false } = {}) {
     const debouncedRun = debounce(run, 300);
 
     window.addEventListener("load", run);
@@ -10265,22 +10344,6 @@ function injectFloatingEntryStyles() {
 // - 不写 B 站 API fetch 细节。
 // - 不写 DOM 选择器细节。
 // - 不写叠加层样式和隐藏逻辑。
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 const settingsStore = createSettingsStore();
 const statsStore = createStatsStore();
 const upBlockStatsStore = createUpBlockStatsStore();

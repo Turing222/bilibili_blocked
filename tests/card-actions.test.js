@@ -96,7 +96,7 @@ describe("card context menu actions", () => {
         assert.equal(event.defaultPrevented, true);
         assert.equal(event.propagationStopped, true);
         assert.equal(panelCall?.[1], "BV1test");
-        assert.equal(panelCall?.[3], undefined);
+        assert.equal(typeof panelCall?.[3], "function");
         assert.equal(panelCall?.[4], 10);
         assert.equal(panelCall?.[5], 20);
     });

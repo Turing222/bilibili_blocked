@@ -94,6 +94,7 @@ export const defaultSettings = {
     floatingEntryVisible_Switch: true,
     blockedOverlayOnlyDisplaysType_Switch: false,
     hideVideoMode_Switch: false,
+    legacyCardBoxOverlayDelay_Switch: false,
     consoleOutputLog_Switch: false,
     hideBlockedWordsInMenu_Switch: false,
     accumulateBlockedRules_Switch: false,

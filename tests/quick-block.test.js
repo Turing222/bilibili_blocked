@@ -40,10 +40,14 @@ describe("quick block popup", () => {
             "qbFadeIn 0.2s cubic-bezier(0.34, 1.56, 0.64, 1) forwards",
         ]);
 
+        const initialPanel = overlay._qbRefs?.panel;
+        assert.ok(initialPanel);
+
         await Promise.resolve();
         await Promise.resolve();
         await new Promise((resolve) => setTimeout(resolve, 0));
 
+        assert.equal(overlay._qbRefs?.panel, initialPanel);
         assert.deepEqual(overlay.animationAssignments, [
             "none",
             "qbFadeIn 0.2s cubic-bezier(0.34, 1.56, 0.64, 1) forwards",

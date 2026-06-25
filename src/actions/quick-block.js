@@ -62,7 +62,7 @@ export function quickBlockVideo(context, videoBv, videoElement, x = 0, y = 0) {
         }
     };
     window.bbvtQuickBlockCloseHandler = closeHandler;
-    
+
     setTimeout(() => {
         document.addEventListener("mousedown", closeHandler);
     }, 0);
@@ -96,11 +96,19 @@ export function quickBlockVideo(context, videoBv, videoElement, x = 0, y = 0) {
 }
 
 function renderQuickBlockPopup(overlay, context, state, videoBv, videoElement) {
-    overlay.replaceChildren();
+    if (!overlay._qbRefs) {
+        overlay._qbRefs = buildQuickBlockPopupShell(overlay, context, state, videoBv, videoElement);
+        positionQuickBlockOverlay(overlay, state, { animate: true });
+    }
 
+    syncQuickBlockPartitionSection(overlay._qbRefs, state);
+    syncQuickBlockTagsSection(overlay._qbRefs, state);
+    positionQuickBlockOverlay(overlay, state, { animate: false });
+}
+
+function buildQuickBlockPopupShell(overlay, context, state, videoBv, videoElement) {
     const panel = createQuickBlockEl("div", "qb-panel");
 
-    // header
     const header = createQuickBlockEl("div", "qb-header");
     const closeButton = createQuickBlockEl("button", "qb-close", "×");
     closeButton.addEventListener("click", () => overlay.remove());
@@ -140,6 +148,7 @@ function renderQuickBlockPopup(overlay, context, state, videoBv, videoElement) {
     titleField.appendChild(titleInput);
 
     const candidates = createQuickBlockEl("div", "qb-candidates");
+    const titleQuickBtn = createQuickBlockEl("button", "qb-quick-btn", "屏蔽");
     const updateTitleQuickBtn = () => {
         titleQuickBtn.disabled = !hasQuickBlockSelection(state.selectedTitleChips, state.titleValue);
     };
@@ -149,8 +158,6 @@ function renderQuickBlockPopup(overlay, context, state, videoBv, videoElement) {
         onChange: updateTitleQuickBtn,
     });
     titleField.appendChild(candidates);
-
-    const titleQuickBtn = createQuickBlockEl("button", "qb-quick-btn", "屏蔽");
     titleInput.addEventListener("input", updateTitleQuickBtn);
     updateTitleQuickBtn();
     titleQuickBtn.addEventListener("click", () => {
@@ -165,14 +172,8 @@ function renderQuickBlockPopup(overlay, context, state, videoBv, videoElement) {
 
     const partitionRow = createQuickBlockEl("div", "qb-row qb-action-row");
     partitionRow.appendChild(createQuickBlockEl("div", "qb-row-label", "分区"));
-    const partitionValue = getPartitionBlockValue(state);
-    const partitionInfo = createQuickBlockEl(
-        "div",
-        state.partitionLoading ? "qb-info qb-info-muted" : "qb-info",
-        state.partitionLoading ? "分区加载中..." : getPartitionDisplayText(state)
-    );
+    const partitionInfo = createQuickBlockEl("div", "qb-info qb-info-muted", "分区加载中...");
     const partitionQuickBtn = createQuickBlockEl("button", "qb-quick-btn", "屏蔽");
-    partitionQuickBtn.disabled = state.partitionLoading || !partitionValue;
     partitionQuickBtn.addEventListener("click", () => {
         const value = getPartitionBlockValue(state);
         if (!value) return;
@@ -187,68 +188,94 @@ function renderQuickBlockPopup(overlay, context, state, videoBv, videoElement) {
     tagsRow.appendChild(createQuickBlockEl("div", "qb-row-label", "标签"));
     const chipsContainer = createQuickBlockEl("div", "qb-chips");
     const tagsQuickBtn = createQuickBlockEl("button", "qb-quick-btn", "屏蔽");
+    tagsQuickBtn.addEventListener("click", () => {
+        const values = [...state.selectedTags];
+        if (values.length === 0) return;
+        commitQuickBlock(context, videoElement, videoBv, () => {
+            appendBlockedTags(context.settingsStore, values);
+        });
+        overlay.remove();
+    });
+    tagsRow.append(chipsContainer, tagsQuickBtn);
+
+    body.append(upRow, titleRow, partitionRow, tagsRow);
+    panel.append(header, body);
+    overlay.appendChild(panel);
+
+    return {
+        panel,
+        partitionInfo,
+        partitionQuickBtn,
+        chipsContainer,
+        tagsQuickBtn,
+    };
+}
+
+function syncQuickBlockPartitionSection(refs, state) {
+    const { partitionInfo, partitionQuickBtn } = refs;
+    const partitionValue = getPartitionBlockValue(state);
+
+    partitionInfo.className = state.partitionLoading ? "qb-info qb-info-muted" : "qb-info";
+    partitionInfo.textContent = state.partitionLoading ? "分区加载中..." : getPartitionDisplayText(state);
+    partitionQuickBtn.disabled = state.partitionLoading || !partitionValue;
+}
+
+function syncQuickBlockTagsSection(refs, state) {
+    const { chipsContainer, tagsQuickBtn } = refs;
+
+    chipsContainer.replaceChildren();
 
     if (state.tagsLoading) {
         chipsContainer.appendChild(createQuickBlockEl("span", "qb-hint", "标签加载中…"));
         tagsQuickBtn.disabled = true;
-    } else if (state.tags.length === 0) {
-        chipsContainer.appendChild(createQuickBlockEl("span", "qb-hint", "无可用标签"));
-        tagsQuickBtn.disabled = true;
-    } else {
-        const updateTagsQuickBtn = () => {
-            tagsQuickBtn.disabled = state.selectedTags.size === 0;
-        };
-        renderMultiSelectChips(chipsContainer, state.tags, state.selectedTags, {
-            chipClass: "qb-chip qb-chip-action",
-            selectedClass: "qb-chip-selected",
-            emptyHint: "无可用标签",
-            onChange: updateTagsQuickBtn,
-        });
-        updateTagsQuickBtn();
-        tagsQuickBtn.addEventListener("click", () => {
-            const values = [...state.selectedTags];
-            if (values.length === 0) return;
-            commitQuickBlock(context, videoElement, videoBv, () => {
-                appendBlockedTags(context.settingsStore, values);
-            });
-            overlay.remove();
-        });
+        return;
     }
 
-    tagsRow.append(chipsContainer, tagsQuickBtn);
-    body.append(upRow, titleRow, partitionRow, tagsRow);
+    if (state.tags.length === 0) {
+        chipsContainer.appendChild(createQuickBlockEl("span", "qb-hint", "无可用标签"));
+        tagsQuickBtn.disabled = true;
+        return;
+    }
 
-    panel.append(header, body);
-    overlay.appendChild(panel);
+    const updateTagsQuickBtn = () => {
+        tagsQuickBtn.disabled = state.selectedTags.size === 0;
+    };
+    renderMultiSelectChips(chipsContainer, state.tags, state.selectedTags, {
+        chipClass: "qb-chip qb-chip-action",
+        selectedClass: "qb-chip-selected",
+        emptyHint: "无可用标签",
+        onChange: updateTagsQuickBtn,
+    });
+    updateTagsQuickBtn();
+}
 
+function positionQuickBlockOverlay(overlay, state, { animate = false } = {}) {
     const rect = overlay.getBoundingClientRect();
     const margin = 12;
     const offset = 10;
     let left = state.x + offset;
     let top = state.y + offset;
-    let originX = '0%';
-    let originY = '0%';
-    
+    let originX = "0%";
+    let originY = "0%";
+
     if (left + rect.width > window.innerWidth - margin) {
         left = state.x - rect.width - offset;
-        originX = '100%';
+        originX = "100%";
     }
     if (top + rect.height > window.innerHeight - margin) {
         top = state.y - rect.height - offset;
-        originY = '100%';
+        originY = "100%";
     }
 
     left = Math.max(margin, Math.min(left, window.innerWidth - rect.width - margin));
     top = Math.max(margin, Math.min(top, window.innerHeight - rect.height - margin));
-    
+
     overlay.style.left = `${left}px`;
     overlay.style.top = `${top}px`;
     overlay.style.transformOrigin = `${originX} ${originY}`;
-    
-    if (!state.animated) {
-        // Add animation after setting transform-origin to prevent flipping animation.
+
+    if (animate && !state.animated) {
         overlay.style.animation = "none";
-        // Force a reflow so transform-origin is registered before the animation starts.
         void overlay.offsetWidth;
         overlay.style.animation = "qbFadeIn 0.2s cubic-bezier(0.34, 1.56, 0.64, 1) forwards";
         state.animated = true;

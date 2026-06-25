@@ -21,6 +21,25 @@ import { safeRegexTest } from "../utils/regex.js";
 
 let blockedOverlayGeneration = 0;
 
+const VIDEO_OVERLAY_STYLE_ID = "bbvtVideoBlockedOverlayStyles";
+
+export function createBlockedOverlayRestoreHandler(videoElement) {
+    setVideoBlockedOverlayLocked(videoElement, true);
+    return () => setVideoBlockedOverlayLocked(videoElement, false);
+}
+
+export function setVideoBlockedOverlayLocked(videoElement, locked) {
+    if (!videoElement?.dataset) {
+        return;
+    }
+
+    if (locked) {
+        videoElement.dataset.bbvtOverlayLocked = "true";
+    } else {
+        delete videoElement.dataset.bbvtOverlayLocked;
+    }
+}
+
 export function createBlockedRenderer() {
     return {
         renderVideoBlockedState(videoContext) {
@@ -652,13 +671,19 @@ function addHiddenOrOverlay(videoElement, videoInfo, settings, setTimeoutStatus 
         return;
     }
 
-    if (videoElement.firstElementChild?.className == "card-box" && setTimeoutStatus == false) {
+    const shouldDelayLegacyCardBoxOverlay =
+        settings.legacyCardBoxOverlayDelay_Switch === true &&
+        videoElement.firstElementChild?.className == "card-box" &&
+        setTimeoutStatus == false;
+
+    if (shouldDelayLegacyCardBoxOverlay) {
         videoElement.style.filter = "blur(5px)";
         markBlockedElement(videoElement, "pending");
 
         const generation = blockedOverlayGeneration;
         setTimeout(() => {
             if (generation !== blockedOverlayGeneration) {
+                cancelLegacyCardBoxPending(videoElement);
                 return;
             }
 
@@ -672,6 +697,8 @@ function addHiddenOrOverlay(videoElement, videoInfo, settings, setTimeoutStatus 
 
         return;
     }
+
+    injectVideoBlockedOverlayStyles();
 
     const elementRect = videoElement.getBoundingClientRect();
     const overlay = document.createElement("div");
@@ -688,22 +715,6 @@ function addHiddenOrOverlay(videoElement, videoInfo, settings, setTimeoutStatus 
     overlay.style.borderRadius = "6px";
     overlay.style.cursor = "pointer";
 
-    overlay.style.transition = "opacity 0.2s ease";
-
-    videoElement.addEventListener("mouseenter", () => {
-        if (overlay.parentNode === videoElement) {
-            overlay.style.opacity = "0";
-            overlay.style.pointerEvents = "none";
-        }
-    });
-
-    videoElement.addEventListener("mouseleave", () => {
-        if (overlay.parentNode === videoElement) {
-            overlay.style.opacity = "1";
-            overlay.style.pointerEvents = "auto";
-        }
-    });
-
     const overlayText = document.createElement("div");
     if (videoElement.firstElementChild?.className == "card-box") {
         overlayText.style.fontSize = "1.25em";
@@ -712,12 +723,61 @@ function addHiddenOrOverlay(videoElement, videoInfo, settings, setTimeoutStatus 
     overlayText.style.color = "rgb(250,250,250)";
     overlay.appendChild(overlayText);
 
+    videoElement.dataset.bbvtBlockedOverlayHost = "true";
     videoElement.insertAdjacentElement("afterbegin", overlay);
     markBlockedElement(videoElement, "true");
 }
 
+function cancelLegacyCardBoxPending(videoElement) {
+    if (videoElement?.dataset?.bbvtBlocked !== "pending") {
+        return;
+    }
+
+    videoElement.style.filter = "none";
+    clearBlockedElement(videoElement);
+}
+
+function clearVideoBlockedOverlayHostState(videoElement) {
+    delete videoElement.dataset.bbvtBlockedOverlayHost;
+    delete videoElement.dataset.bbvtOverlayLocked;
+}
+
+function injectVideoBlockedOverlayStyles() {
+    if (typeof document === "undefined") {
+        return;
+    }
+
+    if (document.getElementById(VIDEO_OVERLAY_STYLE_ID)) {
+        return;
+    }
+
+    const css = `
+        [data-bbvt-blocked-overlay-host="true"] > .blockedOverlay {
+            opacity: 1;
+            pointer-events: auto;
+            transition: opacity 0.2s ease;
+        }
+
+        [data-bbvt-blocked-overlay-host="true"]:hover:not([data-bbvt-overlay-locked="true"]) > .blockedOverlay {
+            opacity: 0;
+            pointer-events: none;
+        }
+
+        [data-bbvt-blocked-overlay-host="true"][data-bbvt-overlay-locked="true"] > .blockedOverlay {
+            opacity: 0;
+            pointer-events: none;
+        }
+    `;
+
+    const style = document.createElement("style");
+    style.id = VIDEO_OVERLAY_STYLE_ID;
+    style.textContent = css;
+    document.head.appendChild(style);
+}
+
 function removeHiddenOrOverlay(videoElement, settings) {
     videoElement.style.filter = "none";
+    clearVideoBlockedOverlayHostState(videoElement);
 
     if (settings?.hideVideoMode_Switch == true) {
         showVideoElement(videoElement);
