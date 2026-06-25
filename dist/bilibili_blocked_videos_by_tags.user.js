@@ -2211,10 +2211,16 @@ function runPipelineBody(context) {
     }
 
     const videoElements = context.domAdapter.getVideoElements();
+    const keepBvs = new Set();
 
     for (const videoElement of videoElements) {
-        runSingleVideoPipeline(pipelineContext, videoElement);
+        const videoRef = runSingleVideoPipeline(pipelineContext, videoElement);
+        if (videoRef?.videoBv) {
+            keepBvs.add(videoRef.videoBv);
+        }
     }
+
+    pipelineContext.videoStore.pruneStaleVideoInfo({ keepBvs });
 
     context.renderer.syncBlockedOverlayRects();
 
@@ -2244,12 +2250,12 @@ function runTrendingFeatures(context) {
 
 function runSingleVideoPipeline(context, videoElement) {
     if (context.domAdapter.isAlreadyBlockedChildElement(videoElement)) {
-        return;
+        return null;
     }
 
     const videoRef = context.domAdapter.readVideoRef(videoElement);
     if (!videoRef) {
-        return;
+        return null;
     }
 
     const videoContext = {
@@ -2291,6 +2297,7 @@ function runSingleVideoPipeline(context, videoElement) {
     }
 
     context.renderer.renderVideoBlockedState(videoContext);
+    return videoRef;
 }
 
 function isPipelineScriptEnabled(settings) {
@@ -2381,6 +2388,7 @@ function createRuntimeContext(parts) {
         renderer: parts.renderer,
         cardActions: parts.cardActions,
         features: parts.features,
+        floatingEntry: parts.floatingEntry || null,
         hooks: parts.hooks || {},
         refresh: parts.refresh || (() => {}),
         rerunVideoCard: parts.rerunVideoCard || (() => {}),
@@ -2802,7 +2810,7 @@ const basicVideoInfoFeature = {
     name: "basic-video-info",
     enabled: () => true,
     run: ({ videoBv, videoElement, domAdapter, videoStore }) => {
-        const domInfo = domAdapter.readVideoBasicInfo(videoElement, videoBv);
+        const domInfo = domAdapter.readVideoBasicInfo(videoElement);
         videoStore.mergeVideoInfo(videoBv, domInfo);
     },
 };
@@ -3469,7 +3477,12 @@ const VALID_MODIFIERS = new Set(CONTEXT_MENU_SCRIPT_MODIFIER_OPTIONS.map((option
 // - GM_setValue("GM_blockedParameter", blockedParameter)
 
 
+
 const storageKey = "GM_blockedParameter";
+
+const numericSettingKeys = Object.values(featureRuleMetadataByType)
+    .filter((metadata) => metadata.kind === "number" && metadata.valueKey)
+    .map((metadata) => metadata.valueKey);
 function createSettingsStore() {
     let currentSettings = loadSettings();
 
@@ -3517,7 +3530,9 @@ function normalizeSettings(settings) {
     oldParameterAdaptation(settingsCopy);
     normalizeUpIdentitySettings(settingsCopy);
     normalizePartitionSettings(settingsCopy);
+    normalizeArraySettings(settingsCopy);
     normalizeUiFeatureSwitches(settingsCopy);
+    normalizeNumericSettings(settingsCopy);
 
     settingsCopy.contextMenuScriptModifier = normalizeContextMenuScriptModifier(
         settingsCopy.contextMenuScriptModifier ?? settingsCopy.contextMenuNativeModifier
@@ -3566,6 +3581,31 @@ function normalizePartitionSettings(obj) {
             return name || (id ? `rid:${id}` : "");
         })
         .filter(Boolean);
+}
+
+function normalizeArraySettings(obj) {
+    for (const key in defaultSettings) {
+        if (!key.endsWith("_Array") || !Array.isArray(defaultSettings[key])) {
+            continue;
+        }
+
+        if (Array.isArray(obj[key])) {
+            continue;
+        }
+
+        obj[key] = [];
+    }
+}
+
+function normalizeNumericSettings(obj) {
+    for (const key of numericSettingKeys) {
+        if (!(key in obj)) {
+            continue;
+        }
+
+        const number = Number(obj[key]);
+        obj[key] = Number.isFinite(number) ? number : 0;
+    }
 }
 
 function normalizeUpIdentitySettings(obj) {
@@ -3732,6 +3772,29 @@ function createStatsStore() {
 
 // ---- src/state/up-block-stats-store.js ----
 const upBlockStatsStorageKey = "GM_blockedUpStats";
+const MAX_COUNTED_VIDEO_KEYS = 2000;
+
+function pruneCountedVideoKeys(countedVideoKeys, ups) {
+    const keys = Object.keys(countedVideoKeys);
+    if (keys.length <= MAX_COUNTED_VIDEO_KEYS) {
+        return;
+    }
+
+    const dropCount = keys.length - MAX_COUNTED_VIDEO_KEYS;
+    for (let i = 0; i < dropCount; i++) {
+        const key = keys[i];
+        const entry = countedVideoKeys[key];
+        delete countedVideoKeys[key];
+
+        // 淘汰去重记录时同步回扣对应 UP 的计数，保证 blockedCount 始终等于
+        // 当前在册（未淘汰）的不同屏蔽视频数，避免被淘汰的 key 复活后重复累加。
+        const upUid = entry && typeof entry === "object" ? normalizeUpBlockStatsText(entry.upUid) : "";
+        if (upUid && ups[upUid]) {
+            const next = normalizeCount(ups[upUid].blockedCount) - 1;
+            ups[upUid] = { ...ups[upUid], blockedCount: Math.max(0, next) };
+        }
+    }
+}
 function createUpBlockStatsStore() {
     const data = normalizeData(typeof GM_getValue === "function" ? GM_getValue(upBlockStatsStorageKey, null) : null);
 
@@ -3760,7 +3823,7 @@ function createUpBlockStatsStore() {
                 updatedAt: 0,
             };
 
-            data.countedVideoKeys[countedKey] = true;
+            data.countedVideoKeys[countedKey] = { upUid };
             data.ups[upUid] = {
                 ...previous,
                 upUid,
@@ -3771,6 +3834,9 @@ function createUpBlockStatsStore() {
                 lastVideoBv: normalizedVideoBv,
                 updatedAt: now,
             };
+            // 先计数再 prune：prune 回扣作用于已更新的 ups 状态，避免同 UP 旧 key 淘汰时
+            // 把本次 +1 覆盖掉。
+            pruneCountedVideoKeys(data.countedVideoKeys, data.ups);
 
             persist(data);
             return true;
@@ -3796,25 +3862,54 @@ function normalizeData(rawData) {
             ? source.countedVideoKeys
             : {};
 
-    return {
-        ups: Object.fromEntries(
-            Object.entries(rawUps)
-                .filter(([upUid, item]) => upUid && item && typeof item === "object")
-                .map(([upUid, item]) => [
-                    upUid,
-                    {
-                        upUid: normalizeUpBlockStatsText(item.upUid) || upUid,
-                        upName: normalizeUpBlockStatsText(item.upName),
-                        blockedCount: normalizeCount(item.blockedCount),
-                        lastReason: normalizeUpBlockStatsText(item.lastReason),
-                        lastVideoTitle: normalizeUpBlockStatsText(item.lastVideoTitle),
-                        lastVideoBv: normalizeUpBlockStatsText(item.lastVideoBv),
-                        updatedAt: normalizeCount(item.updatedAt),
-                    },
-                ])
-        ),
-        countedVideoKeys: { ...rawCountedVideoKeys },
-    };
+    // 兼容旧版 countedVideoKeys[value=true]：key 形如 "bv:upUid"，解析出 upUid 以便 prune 回扣。
+    const countedVideoKeys = {};
+    for (const [key, value] of Object.entries(rawCountedVideoKeys)) {
+        if (!key) {
+            continue;
+        }
+        const upUid = value && typeof value === "object" ? normalizeUpBlockStatsText(value.upUid) : "";
+        countedVideoKeys[key] = { upUid: upUid || parseUpUidFromKey(key) };
+    }
+
+    const ups = Object.fromEntries(
+        Object.entries(rawUps)
+            .filter(([upUid, item]) => upUid && item && typeof item === "object")
+            .map(([upUid, item]) => [
+                upUid,
+                {
+                    upUid: normalizeUpBlockStatsText(item.upUid) || upUid,
+                    upName: normalizeUpBlockStatsText(item.upName),
+                    blockedCount: normalizeCount(item.blockedCount),
+                    lastReason: normalizeUpBlockStatsText(item.lastReason),
+                    lastVideoTitle: normalizeUpBlockStatsText(item.lastVideoTitle),
+                    lastVideoBv: normalizeUpBlockStatsText(item.lastVideoBv),
+                    updatedAt: normalizeCount(item.updatedAt),
+                },
+            ])
+    );
+
+    // 以"当前在册的、属于该 UP 的不同视频数"重算 blockedCount，
+    // 顺带修复历史数据因旧版 prune 漏回扣造成的计数虚高。
+    const countsByUp = {};
+    for (const entry of Object.values(countedVideoKeys)) {
+        const upUid = normalizeUpBlockStatsText(entry?.upUid);
+        if (upUid) {
+            countsByUp[upUid] = (countsByUp[upUid] || 0) + 1;
+        }
+    }
+    for (const [upUid, item] of Object.entries(ups)) {
+        item.blockedCount = countsByUp[upUid] != null ? countsByUp[upUid] : 0;
+    }
+
+    const result = { ups, countedVideoKeys };
+    pruneCountedVideoKeys(result.countedVideoKeys, result.ups);
+    return result;
+}
+
+function parseUpUidFromKey(key) {
+    const sep = key.lastIndexOf(":");
+    return sep >= 0 ? key.slice(sep + 1) : "";
 }
 
 function getLatestReason(videoInfo) {
@@ -3889,6 +3984,14 @@ let getSettings = () => ({ consoleOutputLog_Switch: false });function bindLogge
 // - lastConsoleVideoInfoDict
 // - markAsBlockedTarget()
 // - handleBlockedXXX() 里对 videoInfoDict 的修改逻辑
+
+
+const FAV_COIN_RATIO_MIN_VIEWS = 5000;
+const FAV_COIN_RATIO_MIN_FAVORITES = 50;
+const FAV_COIN_RATIO_MIN_AGE_SECONDS = 7200;
+// 视频卡片滚出视口后，缓存保留的宽限期：在此窗口内滚回视口可直接复用缓存，
+// 避免重新拉 API + 重跑规则导致的 overlay 闪烁。超过宽限期才真正 prune。
+const STALE_VIDEO_INFO_GRACE_MS = 60_000;
 function createVideoStore(onRuleHit) {
     const videoInfoDict = {};
     const videoUpInfoDict = {};
@@ -3899,9 +4002,15 @@ function createVideoStore(onRuleHit) {
         videoUpInfoDict,
 
         mergeVideoInfo(videoBv, nextInfo) {
+            const previous = videoInfoDict[videoBv];
+            // 调用方一般不传 lastSeenAt，此时刷新为当前时间；若显式传入（如测试做时间旅行）则尊重之。
+            const lastSeenAt = nextInfo && Object.prototype.hasOwnProperty.call(nextInfo, "lastSeenAt")
+                ? nextInfo.lastSeenAt
+                : Date.now();
             videoInfoDict[videoBv] = {
-                ...videoInfoDict[videoBv],
+                ...previous,
                 ...nextInfo,
+                lastSeenAt,
             };
         },
 
@@ -4065,6 +4174,22 @@ function createVideoStore(onRuleHit) {
                 videoInfo.blockedTarget = false;
                 videoInfo.triggeredBlockedRules = [];
                 videoInfo.blockedReasons = [];
+            }
+        },
+
+        pruneStaleVideoInfo({ keepBvs = new Set() } = {}) {
+            const keepSet = keepBvs instanceof Set ? keepBvs : new Set(keepBvs);
+            const now = Date.now();
+            for (const videoBv in videoInfoDict) {
+                if (keepSet.has(videoBv)) {
+                    continue;
+                }
+                // 宽限期内的条目保留：滚出视口后短期内滚回可直接复用缓存，避免 overlay 闪烁。
+                const lastSeenAt = videoInfoDict[videoBv]?.lastSeenAt;
+                if (typeof lastSeenAt === "number" && now - lastSeenAt < STALE_VIDEO_INFO_GRACE_MS) {
+                    continue;
+                }
+                delete videoInfoDict[videoBv];
             }
         },
     };
@@ -4239,49 +4364,57 @@ function createVideoStore(onRuleHit) {
     }
 
     function applyBelowLikesRateRule(videoInfo, settings) {
-        if (!settings.blockedBelowLikesRate_Switch || settings.blockedBelowLikesRate <= 0 || !videoInfo.videoLikesRate) {
+        if (!settings.blockedBelowLikesRate_Switch || settings.blockedBelowLikesRate <= 0) {
+            return;
+        }
+
+        // safeRatio 只在数据缺失/分母为 0 时返回 null；真实的 0% 点赞率必须能命中低点赞率规则。
+        if (videoInfo.videoLikesRate == null) {
             return;
         }
 
         if (settings.blockedBelowLikesRate > videoInfo.videoLikesRate) {
-            markAsBlockedTarget(videoInfo, settings, "屏蔽低点赞率", videoInfo.videoLikesRate + "%");
+            markAsBlockedTarget(videoInfo, settings, "屏蔽低点赞率", formatRatio(videoInfo.videoLikesRate) + "%");
         }
     }
 
     function applyBelowCoinRateRule(videoInfo, settings) {
-        if (!settings.blockedBelowCoinRate_Switch || settings.blockedBelowCoinRate <= 0 || !videoInfo.videoCoinRate) {
+        if (!settings.blockedBelowCoinRate_Switch || settings.blockedBelowCoinRate <= 0) {
+            return;
+        }
+
+        if (videoInfo.videoCoinRate == null) {
             return;
         }
 
         if (settings.blockedBelowCoinRate > videoInfo.videoCoinRate) {
-            markAsBlockedTarget(videoInfo, settings, "屏蔽低投币率", videoInfo.videoCoinRate + "%");
+            markAsBlockedTarget(videoInfo, settings, "屏蔽低投币率", formatRatio(videoInfo.videoCoinRate) + "%");
         }
     }
 
     function applyAboveFavoriteCoinRatioRule(videoInfo, settings) {
-        if (
-            !settings.blockedAboveFavoriteCoinRatio_Switch ||
-            settings.blockedAboveFavoriteCoinRatio <= 0 ||
-            !videoInfo.videoFavoriteCoinRatio
-        ) {
+        if (!settings.blockedAboveFavoriteCoinRatio_Switch || settings.blockedAboveFavoriteCoinRatio <= 0) {
             return;
         }
 
-        if (videoInfo.videoView < 5000 || videoInfo.videoFavorite < 50) {
+        if (videoInfo.videoView < FAV_COIN_RATIO_MIN_VIEWS || videoInfo.videoFavorite < FAV_COIN_RATIO_MIN_FAVORITES) {
             return;
         }
 
         const currentTimeInSeconds = Math.floor(Date.now() / 1000);
-        if (currentTimeInSeconds - videoInfo.videoPubdate < 7200) {
+        if (currentTimeInSeconds - videoInfo.videoPubdate < FAV_COIN_RATIO_MIN_AGE_SECONDS) {
             return;
         }
 
-        if (videoInfo.videoFavoriteCoinRatio > settings.blockedAboveFavoriteCoinRatio) {
+        // safeRatio 在投币为 0 时返回 null；此时若有足够收藏，收藏/投币比趋近无穷，直接命中高比值规则。
+        const ratio = videoInfo.videoFavoriteCoinRatio == null ? Number.POSITIVE_INFINITY : videoInfo.videoFavoriteCoinRatio;
+
+        if (ratio > settings.blockedAboveFavoriteCoinRatio) {
             markAsBlockedTarget(
                 videoInfo,
                 settings,
                 "屏蔽高收藏投币比",
-                videoInfo.videoFavoriteCoinRatio + "\nUP主: " + videoInfo.videoUpName
+                (Number.isFinite(ratio) ? formatRatio(ratio) : "∞") + "\nUP主: " + videoInfo.videoUpName
             );
         }
     }
@@ -4788,6 +4921,14 @@ function createVideoStore(onRuleHit) {
     function normalizeReasonValue(value) {
         return value === undefined || value === null ? "" : String(value);
     }
+
+    function formatRatio(value) {
+        const number = Number(value);
+        if (!Number.isFinite(number)) {
+            return "";
+        }
+        return number.toFixed(2);
+    }
 }
 
 // ---- src/capabilities/registry.js ----
@@ -4988,6 +5129,8 @@ function getCapability(capabilityId) {
 
 
 const API_RETRY_DELAY_MS = 3000;
+const COMMENT_QUEUE_INTERVAL_MS = 100;
+const COMMENT_QUEUE_MAX_INTERVAL_MS = 2000;
 
 let getApiSettings = () => ({ accumulateBlockedRules_Switch: false });
 
@@ -5000,7 +5143,6 @@ function shouldSkipApiWhenBlocked(videoBv, videoStore) {
     return !getApiSettings().accumulateBlockedRules_Switch;
 }
 function createBilibiliApiClient() {
-    let apiRequestDelayTime = 0;
     let refreshCallback = () => {};
     const apiHealth = createApiHealthStore();
     const regionNameCache = {};
@@ -5008,6 +5150,10 @@ function createBilibiliApiClient() {
     const inFlightTagFetches = new Map();
     const inFlightCommentFetches = new Map();
     const inFlightUpInfoFetches = new Map();
+
+    const commentRequestQueue = new Set();
+    let commentQueueTimer = null;
+    let commentQueueInFlight = false;
 
     function getFallbackRegionName(regionId) {
         return regionId ? `rid:${regionId}` : "";
@@ -5110,11 +5256,11 @@ function createBilibiliApiClient() {
                 videoPartitions: videoPartitionName || getFallbackRegionName(videoPartitionId),
                 videoView,
                 videoLike,
-                videoLikesRate: ((videoLike / videoView) * 100).toFixed(2),
+                videoLikesRate: safeRatio(videoLike, videoView, 100),
                 videoCoin,
-                videoCoinRate: ((videoCoin / videoView) * 100).toFixed(2),
+                videoCoinRate: safeRatio(videoCoin, videoView, 100),
                 videoFavorite,
-                videoFavoriteCoinRatio: (videoFavorite / videoCoin).toFixed(2),
+                videoFavoriteCoinRatio: safeRatio(videoFavorite, videoCoin, 1),
                 videoChargingExclusive: data.is_upower_exclusive,
                 videoResolution: {
                     width: data.dimension?.width || 0,
@@ -5621,32 +5767,64 @@ function createBilibiliApiClient() {
             }
 
             videoStore.mergeVideoInfo(videoBv, {
-                lastVideoCommentsApiRequestTime: new Date(currentTime.getTime() + apiRequestDelayTime),
+                lastVideoCommentsApiRequestTime: new Date(),
             });
             markVideoDataState(videoBv, videoStore, API_DATA_KEYS.VIDEO_COMMENTS, API_DATA_STATUS.PENDING, {
                 capabilityId: CAPABILITY_IDS.COMMENT_API,
                 endpointId: API_ENDPOINT_IDS.COMMENT_MAIN,
             });
 
-            const apiRequestDelayTimeMax = countPendingComments(videoStore.videoInfoDict) * 100;
-            if (apiRequestDelayTime > apiRequestDelayTimeMax) {
-                apiRequestDelayTime = 0;
-            }
-
-            setTimeout(() => {
-                fetchVideoComments(videoBv, videoStore, { force: true })
-                    .then((commentData) => {
-                        if (commentData) {
-                            videoStore.mergeVideoInfo(videoBv, commentData);
-                        }
-
-                        refreshCallback();
-                    });
-            }, apiRequestDelayTime);
-
-            apiRequestDelayTime = apiRequestDelayTime + 100;
+            commentRequestQueue.add(videoBv);
+            scheduleCommentQueue(videoStore);
         },
     };
+
+    function scheduleCommentQueue(videoStore) {
+        if (commentQueueTimer || commentQueueInFlight) {
+            return;
+        }
+
+        const interval = Math.min(
+            commentRequestQueue.size * COMMENT_QUEUE_INTERVAL_MS,
+            COMMENT_QUEUE_MAX_INTERVAL_MS
+        );
+
+        commentQueueTimer = setTimeout(() => {
+            commentQueueTimer = null;
+            drainCommentQueue(videoStore);
+        }, interval);
+    }
+
+    function drainCommentQueue(videoStore) {
+        if (commentQueueInFlight) {
+            return;
+        }
+
+        const nextBv = commentRequestQueue.values().next().value;
+        if (!nextBv) {
+            return;
+        }
+
+        commentRequestQueue.delete(nextBv);
+        commentQueueInFlight = true;
+
+        fetchVideoComments(nextBv, videoStore, { force: true })
+            .then((commentData) => {
+                if (commentData) {
+                    videoStore.mergeVideoInfo(nextBv, commentData);
+                }
+            })
+            .catch((error) => {
+                consoleLogOutput("comment queue processing failed:", error);
+            })
+            .finally(() => {
+                commentQueueInFlight = false;
+                refreshCallback();
+                if (commentRequestQueue.size > 0) {
+                    scheduleCommentQueue(videoStore);
+                }
+            });
+    }
 }
 
 function shouldRequestVideoData(videoBv, videoStore, dataKey, { allowReady = false } = {}) {
@@ -5715,16 +5893,6 @@ function partitionFromVideoInfo(info) {
     return { name, id };
 }
 
-function countPendingComments(videoInfoDict) {
-    let count = 0;
-    for (const videoBv in videoInfoDict) {
-        if (!Object.prototype.hasOwnProperty.call(videoInfoDict[videoBv], "filteredComments")) {
-            count++;
-        }
-    }
-    return count;
-}
-
 function readTopCommentMessage(commentData) {
     return commentData?.top?.upper?.content?.message || commentData?.upper?.top?.content?.message || "";
 }
@@ -5739,6 +5907,16 @@ function readApiCode(json) {
 
 function readApiMessage(json) {
     return json?.message || json?.msg || "";
+}
+
+function safeRatio(numerator, denominator, scale) {
+    const n = Number(numerator);
+    const d = Number(denominator);
+    if (!Number.isFinite(n) || !Number.isFinite(d) || d === 0) {
+        return null;
+    }
+
+    return Number(((n / d) * scale).toFixed(2));
 }
 
 // ---- src/platform/dom-adapter.js ----
@@ -5896,17 +6074,16 @@ const videoCardSelectors = [
                     continue;
                 }
 
-                const videoAvTemp = videoLinkElement.href.match(/\/(av)(\d+)/);
-                if (videoAvTemp) {
-                    videoBv = av2bv(videoAvTemp[2]);
-                }
-
                 const videoBvTemp = videoLinkElement.href.match(/\/(BV\w+)/);
                 if (videoBvTemp) {
                     videoBv = videoBvTemp[1];
+                    videoLink = videoLinkElement.href;
+                    continue;
                 }
 
-                if (videoBv) {
+                const videoAvTemp = videoLinkElement.href.match(/\/(av)(\d+)/);
+                if (videoAvTemp) {
+                    videoBv = av2bv(videoAvTemp[2]);
                     videoLink = videoLinkElement.href;
                 }
             }
@@ -5999,24 +6176,30 @@ const videoCardSelectors = [
 
         hideNonVideoElements() {
             if (window.location.href.startsWith("https://www.bilibili.com/")) {
-                document
-                    .querySelectorAll(
-                        `div.floor-single-card,
-                        div.feed-card:has(a[href^="//cm.bilibili.com/"]),
-                        div.bili-feed-card:has(a[href^="//cm.bilibili.com/"]),
-                        div.bili-feed-card:has(a[href^="https://live.bilibili.com/"])`
-                    )
-                    .forEach((el) => el.classList.add("hideAD"));
+                hideElementsBySelector(
+                    `div.floor-single-card,
+                    div.feed-card:has(a[href^="//cm.bilibili.com/"]),
+                    div.bili-feed-card:has(a[href^="//cm.bilibili.com/"]),
+                    div.bili-feed-card:has(a[href^="https://live.bilibili.com/"])`,
+                    `div.floor-single-card, div.feed-card, div.bili-feed-card`,
+                    (el) =>
+                        el.querySelector(`a[href^="//cm.bilibili.com/"], a[href^="https://live.bilibili.com/"]`),
+                    (el) => el.classList.add("hideAD")
+                );
             }
 
             if (window.location.href.startsWith("https://search.bilibili.com/all")) {
-                document
-                    .querySelectorAll(
-                        `div.bili-video-card:has(a[href^="https://www.bilibili.com/cheese/"]),
-                        div.bili-video-card:has(a[href^="//cm.bilibili.com/"]),
-                        div.bili-video-card:has(a[href^="//live.bilibili.com/"])`
-                    )
-                    .forEach((el) => el.parentNode.classList.add("hideAD"));
+                hideElementsBySelector(
+                    `div.bili-video-card:has(a[href^="https://www.bilibili.com/cheese/"]),
+                    div.bili-video-card:has(a[href^="//cm.bilibili.com/"]),
+                    div.bili-video-card:has(a[href^="//live.bilibili.com/"])`,
+                    `div.bili-video-card`,
+                    (el) =>
+                        el.querySelector(
+                            `a[href^="https://www.bilibili.com/cheese/"], a[href^="//cm.bilibili.com/"], a[href^="//live.bilibili.com/"]`
+                        ),
+                    (el) => el.parentNode?.classList.add("hideAD")
+                );
             }
 
             if (window.location.href.startsWith("https://www.bilibili.com/video/")) {
@@ -6035,6 +6218,17 @@ const videoCardSelectors = [
             }
         },
     };
+}
+
+function hideElementsBySelector(selector, fallbackSelector, matchesPredicate, applyFn) {
+    let elements;
+    try {
+        elements = document.querySelectorAll(selector);
+    } catch {
+        // :has() 等选择器不被支持时浏览器抛 SyntaxError，降级为父选择器 + 二次过滤
+        elements = [...(document.querySelectorAll(fallbackSelector) || [])].filter(matchesPredicate);
+    }
+    elements.forEach(applyFn);
 }
 
 function readCommentText(commentElement) {
@@ -6830,6 +7024,11 @@ const VIDEO_OVERLAY_STYLE_ID = "bbvtVideoBlockedOverlayStyles";function createB
 
 const commentFilterOverlays = new WeakMap();
 
+// peeking 状态的唯一事实来源用 WeakSet 维护，避免写进 DOM dataset 后被 re-evaluation
+// （resize / MutationObserver / settling retry 触发的 restoreCommentElement）顺手清掉，
+// 导致用户还在悬停的评论在重跑渲染时丢失 peek。
+const peekingCommentElements = new WeakSet();
+
 function blockCommentElement(commentElement, blockResult, { mode = "overlay", reasonItems = [] } = {}) {
     const reason = blockResult.reason || blockResult.type || "命中评论规则";
     const commentKey = getCommentBypassKey(commentElement, blockResult);
@@ -6849,7 +7048,7 @@ function blockCommentElement(commentElement, blockResult, { mode = "overlay", re
 
     if (mode === "hide") {
         removeCommentOverlay(commentElement, commentKey);
-        clearCommentPeekState(commentElement);
+        endCommentPeek(commentElement);
         hideCommentElement(commentElement);
     } else {
         injectCommentFilterStyles(commentElement);
@@ -6921,11 +7120,7 @@ function ensureCommentOverlay(commentElement, { reason, commentKey = "", reasonI
         overlay.dataset.bbvtCommentOverlaySignature = overlaySignature;
     }
 
-    if (isCommentPeeking(commentElement)) {
-        overlay.dataset.bbvtCommentFilterPeeking = "true";
-    } else {
-        delete overlay.dataset.bbvtCommentFilterPeeking;
-    }
+    syncCommentPeekDataset(commentElement, overlay);
 
     overlay.onmousemove = (event) => {
         if (isCommentOverlayControlTarget(event?.target, overlay)) {
@@ -7086,7 +7281,9 @@ function restoreCommentElement(commentElement, { commentKey: restoreCommentKey =
     const overlay = commentFilterOverlays.get(commentElement);
     removeCommentOverlay(commentElement, commentKey);
 
-    clearCommentPeekState(commentElement, overlay);
+    // 评论不再命中规则时彻底恢复：overlay 已被移除，peek 也没有继续存在的意义，
+    // 这里同时清掉 WeakSet 与 DOM 标记，确保下次重新命中时是干净的初始态。
+    endCommentPeek(commentElement, overlay);
     showCommentElement(commentElement);
     delete commentElement.dataset.bbvtCommentKey;
 }
@@ -7135,31 +7332,53 @@ function peekCommentElement(commentElement, overlay) {
         return;
     }
 
-    commentElement.dataset.bbvtCommentFilterPeeking = "true";
-    overlay.dataset.bbvtCommentFilterPeeking = "true";
+    peekingCommentElements.add(commentElement);
+    if (overlay) {
+        commentFilterOverlays.set(commentElement, overlay);
+    }
+    syncCommentPeekDataset(commentElement, overlay);
     showCommentElement(commentElement, { keepBlockState: true });
 }
 
-function endCommentOverlayPeek(commentElement, overlay) {
+function endCommentOverlayPeek(commentElement, overlay = commentFilterOverlays.get(commentElement)) {
     if (!isCommentPeeking(commentElement)) {
         return;
     }
 
-    clearCommentPeekState(commentElement, overlay);
+    endCommentPeek(commentElement, overlay);
     if (commentElement.dataset.bbvtCommentBlocked === "true") {
         hideCommentElementForOverlay(commentElement);
     }
 }
 
-function clearCommentPeekState(commentElement, overlay = commentFilterOverlays.get(commentElement)) {
+// 真正结束 peek：只在鼠标离开、切换到 hide 模式、或评论彻底恢复时调用。
+// re-evaluation 期间被重新 block 的评论不会走到这里，因此 peek 能跨 resize 保持。
+function endCommentPeek(commentElement, overlay = commentFilterOverlays.get(commentElement)) {
+    peekingCommentElements.delete(commentElement);
     delete commentElement.dataset.bbvtCommentFilterPeeking;
     if (overlay) {
         delete overlay.dataset.bbvtCommentFilterPeeking;
     }
 }
 
+// 把 WeakSet 中的 peek 真值同步回 DOM dataset，仅供 CSS 选择器与 smoke 校验读取。
+// 重新渲染 overlay 时调用，确保 dataset 始终跟随唯一的 WeakSet 状态。
+function syncCommentPeekDataset(commentElement, overlay = commentFilterOverlays.get(commentElement)) {
+    if (isCommentPeeking(commentElement)) {
+        commentElement.dataset.bbvtCommentFilterPeeking = "true";
+        if (overlay) {
+            overlay.dataset.bbvtCommentFilterPeeking = "true";
+        }
+    } else {
+        delete commentElement.dataset.bbvtCommentFilterPeeking;
+        if (overlay) {
+            delete overlay.dataset.bbvtCommentFilterPeeking;
+        }
+    }
+}
+
 function isCommentPeeking(commentElement) {
-    return commentElement.dataset.bbvtCommentFilterPeeking === "true";
+    return peekingCommentElements.has(commentElement);
 }
 
 function getCommentBypassKey(commentElement, blockResult) {
