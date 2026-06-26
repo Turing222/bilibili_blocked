@@ -1,20 +1,59 @@
 import assert from "node:assert/strict";
-import { describe, it } from "node:test";
+import { afterEach, beforeEach, describe, it } from "node:test";
 
 import { createUpBlockStatsStore } from "../src/state/up-block-stats-store.js";
 
-function blockVideo(store, bv, upUid, upName = "测试UP") {
+const originalGMGetValue = globalThis.GM_getValue;
+const originalGMSetValue = globalThis.GM_setValue;
+const originalDateNow = Date.now;
+
+let gmStorage;
+let now;
+
+function clone(value) {
+    return value === undefined ? undefined : JSON.parse(JSON.stringify(value));
+}
+
+function blockVideo(store, bv, upUid, upName = "Test UP") {
     return store.recordBlockedVideo(bv, {
         videoBv: bv,
         videoUpUid: upUid,
         videoUpName: upName,
-        videoTitle: `视频-${bv}`,
-        triggeredBlockedRules: ["按标题屏蔽: x"],
+        videoTitle: `Video-${bv}`,
+        triggeredBlockedRules: ["Blocked by title: x"],
     });
 }
 
 describe("createUpBlockStatsStore", () => {
-    it("counts a blocked video once and deduplicates by bv+upUid", () => {
+    beforeEach(() => {
+        gmStorage = {};
+        now = 1_000;
+        globalThis.GM_getValue = (key, fallbackValue) => (
+            Object.prototype.hasOwnProperty.call(gmStorage, key) ? clone(gmStorage[key]) : fallbackValue
+        );
+        globalThis.GM_setValue = (key, value) => {
+            gmStorage[key] = clone(value);
+        };
+        Date.now = () => now;
+    });
+
+    afterEach(() => {
+        if (originalGMGetValue) {
+            globalThis.GM_getValue = originalGMGetValue;
+        } else {
+            delete globalThis.GM_getValue;
+        }
+
+        if (originalGMSetValue) {
+            globalThis.GM_setValue = originalGMSetValue;
+        } else {
+            delete globalThis.GM_setValue;
+        }
+
+        Date.now = originalDateNow;
+    });
+
+    it("deduplicates a blocked video within one store instance", () => {
         const store = createUpBlockStatsStore();
 
         assert.equal(blockVideo(store, "BV1", "100"), true);
@@ -23,6 +62,9 @@ describe("createUpBlockStatsStore", () => {
         const suggestions = store.getSuggestions(1);
         assert.equal(suggestions.length, 1);
         assert.equal(suggestions[0].blockedCount, 1);
+        assert.deepEqual(Object.keys(gmStorage.GM_blockedUpStats), ["version", "ups"]);
+        assert.equal(gmStorage.GM_blockedUpStats.version, 2);
+        assert.equal(gmStorage.GM_blockedUpStats.ups["100"].blockedCount, 1);
     });
 
     it("aggregates blocked counts per upUid across distinct videos", () => {
@@ -37,58 +79,99 @@ describe("createUpBlockStatsStore", () => {
         assert.equal(suggestions[0].blockedCount, 2);
     });
 
-    it("prunes countedVideoKeys and keeps blockedCount in sync with the live window", () => {
+    it("allows the same video to be counted again after store recreation", () => {
+        const firstStore = createUpBlockStatsStore();
+
+        assert.equal(blockVideo(firstStore, "BV1", "100"), true);
+        assert.equal(blockVideo(firstStore, "BV1", "100"), false);
+        assert.equal(firstStore.getSuggestions(1)[0].blockedCount, 1);
+
+        const secondStore = createUpBlockStatsStore();
+
+        assert.equal(blockVideo(secondStore, "BV1", "100"), true);
+        assert.equal(secondStore.getSuggestions(1)[0].blockedCount, 2);
+        assert.equal(gmStorage.GM_blockedUpStats.ups["100"].blockedCount, 2);
+    });
+
+    it("persists long-lived counts without a countedVideoKeys payload", () => {
         const store = createUpBlockStatsStore();
-        const upUid = "100";
 
         for (let i = 0; i < 2500; i++) {
-            blockVideo(store, `BV${i}`, upUid);
+            assert.equal(blockVideo(store, `BV${i}`, "100"), true);
         }
 
-        // prune 后窗口只保留最近 MAX_COUNTED_VIDEO_KEYS 条，blockedCount 等于窗口内在册数。
-        const suggestions = store.getSuggestions(1);
-        assert.equal(suggestions.length, 1);
-        assert.equal(suggestions[0].blockedCount, 2000);
-
-        // 窗口已饱和：新视频进入会挤掉最旧的一条，blockedCount 维持在窗口上限，不再增长。
-        const newVideo = blockVideo(store, "BV-new-after-prune", upUid);
-        assert.equal(newVideo, true);
-        assert.equal(store.getSuggestions(1)[0].blockedCount, 2000);
+        const persisted = gmStorage.GM_blockedUpStats;
+        assert.equal(persisted.version, 2);
+        assert.equal(Object.prototype.hasOwnProperty.call(persisted, "countedVideoKeys"), false);
+        assert.equal(persisted.ups["100"].blockedCount, 2500);
+        assert.equal(store.getSuggestions(1)[0].blockedCount, 2500);
     });
 
-    it("does not double-count a video that is still inside the dedup window", () => {
-        const store = createUpBlockStatsStore();
-        const upUid = "100";
-
-        assert.equal(blockVideo(store, "BV1", upUid), true);
-        // 同 BV+UP 仍在窗口内，重复屏蔽不重复计数。
-        assert.equal(blockVideo(store, "BV1", upUid), false);
-
-        assert.equal(store.getSuggestions(1)[0].blockedCount, 1);
-    });
-
-    it("rebuilds blockedCount from countedVideoKeys on load, fixing legacy inflated counts", () => {
-        // 模拟旧版数据：blockedCount 被虚高写成 9999，但 countedVideoKeys 里只有一个 key。
-        const legacyData = {
+    it("preserves legacy blockedCount and drops countedVideoKeys on load", () => {
+        gmStorage.GM_blockedUpStats = {
             ups: {
                 "100": {
                     upUid: "100",
-                    upName: "测试UP",
+                    upName: "Test UP",
                     blockedCount: 9999,
-                    lastReason: "按标题屏蔽: x",
-                    lastVideoTitle: "视频-BV1",
+                    lastReason: "Blocked by title: x",
+                    lastVideoTitle: "Video-BV1",
                     lastVideoBv: "BV1",
                     updatedAt: 1000,
                 },
             },
             countedVideoKeys: { "BV1:100": true },
         };
-        globalThis.GM_getValue = (key) => (key === "GM_blockedUpStats" ? legacyData : undefined);
+
+        const store = createUpBlockStatsStore();
+
+        assert.equal(store.getSuggestions(1)[0].blockedCount, 9999);
+        assert.deepEqual(Object.keys(gmStorage.GM_blockedUpStats), ["version", "ups"]);
+        assert.equal(gmStorage.GM_blockedUpStats.version, 2);
+        assert.equal(gmStorage.GM_blockedUpStats.ups["100"].blockedCount, 9999);
+        assert.equal(blockVideo(store, "BV2", "100"), true);
+        assert.equal(gmStorage.GM_blockedUpStats.ups["100"].blockedCount, 10000);
+        assert.equal(Object.prototype.hasOwnProperty.call(gmStorage.GM_blockedUpStats, "countedVideoKeys"), false);
+    });
+
+    it("uses legacy countedVideoKeys only when no up aggregate exists", () => {
+        gmStorage.GM_blockedUpStats = {
+            countedVideoKeys: {
+                "BV1:100": true,
+                "BV2:100": {},
+                "BV3:200": true,
+            },
+        };
 
         const store = createUpBlockStatsStore();
         const suggestions = store.getSuggestions(1);
-        assert.equal(suggestions[0].blockedCount, 1);
 
-        delete globalThis.GM_getValue;
+        assert.deepEqual(
+            suggestions.map((item) => [item.upUid, item.blockedCount]),
+            [["100", 2], ["200", 1]]
+        );
+        assert.deepEqual(Object.keys(gmStorage.GM_blockedUpStats), ["version", "ups"]);
+        assert.equal(gmStorage.GM_blockedUpStats.version, 2);
+        assert.equal(Object.prototype.hasOwnProperty.call(gmStorage.GM_blockedUpStats, "countedVideoKeys"), false);
+    });
+
+    it("sorts suggestions by count and then updatedAt", () => {
+        const store = createUpBlockStatsStore();
+
+        now = 1_000;
+        blockVideo(store, "BV1", "100");
+        now = 2_000;
+        blockVideo(store, "BV2", "200");
+        now = 3_000;
+        blockVideo(store, "BV3", "100");
+        now = 4_000;
+        blockVideo(store, "BV4", "200");
+        now = 5_000;
+        blockVideo(store, "BV5", "300");
+
+        assert.deepEqual(
+            store.getSuggestions(1).map((item) => item.upUid),
+            ["200", "100", "300"]
+        );
     });
 });
