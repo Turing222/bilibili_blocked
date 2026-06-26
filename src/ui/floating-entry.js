@@ -304,7 +304,6 @@ function createFloatingEntryController(context) {
 
         if (!enabled) {
             container.classList.remove("bbvt-fe-warning");
-            closeModePanel();
             updateMainContent("关", "暂停");
             return;
         }

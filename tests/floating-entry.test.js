@@ -291,4 +291,24 @@ describe("floating entry script toggle", () => {
         mock.timers.tick(5000);
         assert.equal(modePanel.hidden, true);
     });
+
+    it("keeps the mode panel open when the script is disabled and stats refresh", () => {
+        setupDom();
+        const context = createFloatingEntryContext();
+
+        mountFloatingEntry(context);
+        const container = globalThis.document.getElementById("bbvtFloatingEntry");
+        const mainButton = container.querySelector(".bbvt-fe-main");
+        const modeButton = container.querySelector(".bbvt-fe-mode");
+        const modePanel = container.querySelector(".bbvt-fe-mode-panel");
+
+        mainButton.dispatchEvent("click");
+        assert.equal(context.settingsStore.getSettings().scriptEnabled_Switch, false);
+
+        modeButton.dispatchEvent("click", { stopPropagation() {} });
+        assert.equal(modePanel.hidden, false);
+
+        context.floatingEntry.updateStats(12, 5, 0.42);
+        assert.equal(modePanel.hidden, false);
+    });
 });

@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name            Bilibili Blocked
 // @namespace       https://github.com/Turing222/bilibili_blocked
-// @version         2.0.0
+// @version         2.0.1
 // @description     按标签、标题、UP 主、分区、统计数据等条件屏蔽 B 站视频卡片；模块化重构版。
 // @author          Turing222
 // @license         CC-BY-NC-SA-4.0
@@ -11154,7 +11154,6 @@ function createFloatingEntryController(context) {
 
         if (!enabled) {
             container.classList.remove("bbvt-fe-warning");
-            closeModePanel();
             updateMainContent("关", "暂停");
             return;
         }
