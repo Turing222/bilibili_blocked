@@ -4,6 +4,7 @@ const floatingEntryId = "bbvtFloatingEntry";
 const storagePosKey = "bbvtFloatingPos";
 const visibleSettingKey = "floatingEntryVisible_Switch";
 const scriptEnabledSettingKey = "scriptEnabled_Switch";
+const floatingEntryPeekWidth = 18;
 
 export function mountFloatingEntry(context) {
     if (!context.floatingEntry?.mount) {
@@ -17,6 +18,8 @@ function createFloatingEntryController(context) {
     let container = null;
     let mainBtn = null;
     let settingsBtn = null;
+    let mainLabel = null;
+    let mainStat = null;
     let drag = null;
     let justDragged = false;
     let snapTimer = null;
@@ -42,6 +45,9 @@ function createFloatingEntryController(context) {
             container = existing;
             mainBtn = existing.querySelector(".bbvt-fe-main");
             settingsBtn = existing.querySelector(".bbvt-fe-settings");
+            mainLabel = existing.querySelector(".bbvt-fe-label");
+            mainStat = existing.querySelector(".bbvt-fe-stat");
+            syncViewportMetrics();
             syncFromSettings();
             return;
         }
@@ -60,12 +66,17 @@ function createFloatingEntryController(context) {
         clearTimeout(snapTimer);
         clearTimeout(hideTimer);
         snapTimer = setTimeout(() => {
+            syncViewportMetrics();
             const rect = container.getBoundingClientRect();
-            const snapLeft = rect.left + 22 < window.innerWidth / 2 ? 0 : window.innerWidth - 44;
+            const entryWidth = rect.width || 96;
+            const viewportWidth = getViewportWidth();
+            const side = rect.left + entryWidth / 2 < viewportWidth / 2 ? "left" : "right";
+            const snapLeft = side === "left" ? 0 : viewportWidth - entryWidth;
+            setDockSide(side);
             container.style.transition = "left 0.35s ease";
             container.style.left = snapLeft + "px";
             if (typeof GM_setValue === "function") {
-                GM_setValue(storagePosKey, { left: snapLeft, top: parseInt(container.style.top) });
+                GM_setValue(storagePosKey, { left: snapLeft, top: parseInt(container.style.top), side });
             }
             hideTimer = setTimeout(() => container.classList.add("bbvt-fe-hidden"), 5000);
         }, 2000);
@@ -74,6 +85,8 @@ function createFloatingEntryController(context) {
     function createEntryDom() {
         container = document.createElement("div");
         container.id = floatingEntryId;
+        setDockSide("right");
+        syncViewportMetrics();
 
         settingsBtn = document.createElement("button");
         settingsBtn.className = "bbvt-fe-settings";
@@ -86,11 +99,12 @@ function createFloatingEntryController(context) {
         mainBtn.className = "bbvt-fe-main";
         mainBtn.type = "button";
         mainBtn.title = "切换 Bilibili 屏蔽总开关";
-        mainBtn.textContent = "屏";
-
-        const badge = document.createElement("div");
-        badge.className = "bbvt-fe-badge";
-        badge.style.display = "none";
+        setButtonIcon(mainBtn, "shield", "切换 Bilibili 屏蔽总开关");
+        mainLabel = document.createElement("span");
+        mainLabel.className = "bbvt-fe-label";
+        mainStat = document.createElement("span");
+        mainStat.className = "bbvt-fe-stat";
+        mainBtn.append(mainLabel, mainStat);
 
         const closeBtn = document.createElement("button");
         closeBtn.className = "bbvt-fe-close";
@@ -99,7 +113,7 @@ function createFloatingEntryController(context) {
         setButtonIcon(closeBtn, "close", "隐藏浮窗");
         closeBtn.addEventListener("click", () => hide());
 
-        container.append(settingsBtn, mainBtn, badge, closeBtn);
+        container.append(settingsBtn, mainBtn, closeBtn);
         document.body.appendChild(container);
     }
 
@@ -113,6 +127,7 @@ function createFloatingEntryController(context) {
         container.classList.add("bbvt-fe-custom");
         container.style.left = savedPos.left + "px";
         container.style.top = savedPos.top + "px";
+        setDockSide(savedPos.side || getDockSideFromLeft(Number(savedPos.left) || 0));
     }
 
     function bindEntryEvents() {
@@ -196,6 +211,7 @@ function createFloatingEntryController(context) {
         clearTimeout(snapTimer);
         clearTimeout(hideTimer);
         container.classList.remove("bbvt-fe-hidden");
+        syncViewportMetrics();
         container.style.transition = "none";
         const rect = container.getBoundingClientRect();
         drag = { startX: e.clientX, startY: e.clientY, elemLeft: rect.left, elemTop: rect.top, moved: false };
@@ -216,21 +232,19 @@ function createFloatingEntryController(context) {
             return;
         }
 
-        if (lastStats.rate >= 0.5 && lastStats.total >= 5) {
-            const text = Math.round(lastStats.rate * 100) + "%";
-            if (mainBtn.textContent !== text) {
-                container.classList.add("bbvt-fe-warning");
-                mainBtn.textContent = text;
-                mainBtn.style.fontSize = "12px";
-            }
+        const hasStats = Number(lastStats.total) > 0;
+        const blocked = Math.max(0, Number(lastStats.blocked) || 0);
+        const total = Math.max(0, Number(lastStats.total) || 0);
+        const statText = hasStats ? `${blocked}/${total}` : "就绪";
+
+        if (lastStats.rate >= 0.5 && total >= 5) {
+            container.classList.add("bbvt-fe-warning");
+            updateMainContent("屏", statText);
             return;
         }
 
-        if (mainBtn.textContent !== "屏") {
-            container.classList.remove("bbvt-fe-warning");
-            mainBtn.textContent = "屏";
-            mainBtn.style.fontSize = "15px";
-        }
+        container.classList.remove("bbvt-fe-warning");
+        updateMainContent("屏", statText);
     }
 
     function toggleScriptEnabled() {
@@ -259,8 +273,7 @@ function createFloatingEntryController(context) {
 
         if (!enabled) {
             container.classList.remove("bbvt-fe-warning");
-            mainBtn.textContent = "关";
-            mainBtn.style.fontSize = "15px";
+            updateMainContent("关", "暂停");
             return;
         }
 
@@ -297,6 +310,40 @@ function createFloatingEntryController(context) {
         }
     }
 
+    function updateMainContent(label, stat) {
+        if (mainLabel) {
+            mainLabel.textContent = label;
+        }
+        if (mainStat) {
+            mainStat.textContent = stat;
+        }
+    }
+
+    function setDockSide(side) {
+        if (!container) {
+            return;
+        }
+
+        const normalizedSide = side === "left" ? "left" : "right";
+        container.classList.toggle("bbvt-fe-side-left", normalizedSide === "left");
+        container.classList.toggle("bbvt-fe-side-right", normalizedSide === "right");
+    }
+
+    function getDockSideFromLeft(left) {
+        const viewportWidth = getViewportWidth();
+        const entryWidth = container?.getBoundingClientRect?.().width || 96;
+        return left + entryWidth / 2 < viewportWidth / 2 ? "left" : "right";
+    }
+
+    function syncViewportMetrics() {
+        if (!container?.style?.setProperty) {
+            return;
+        }
+
+        container.style.setProperty("--bbvt-fe-peek-width", `${floatingEntryPeekWidth}px`);
+        container.style.setProperty("--bbvt-fe-scrollbar-width", `${getScrollbarWidth()}px`);
+    }
+
     return {
         mount,
         updateStats,
@@ -325,19 +372,47 @@ function saveFloatingEntryVisible(context, visible) {
     settingsStore.saveSettings(settings);
 }
 
+function getViewportWidth() {
+    return document.documentElement?.clientWidth || window.innerWidth || 1280;
+}
+
+function getScrollbarWidth() {
+    const innerWidth = window.innerWidth || getViewportWidth();
+    return Math.max(0, innerWidth - getViewportWidth());
+}
+
 function injectFloatingEntryStyles() {
     const css = `
         #${floatingEntryId} {
             position: fixed;
             top: 92px;
-            right: -38px;
+            right: calc(-96px + var(--bbvt-fe-peek-width, 18px) + var(--bbvt-fe-scrollbar-width, 0px));
             z-index: 2147483646;
-            width: 44px;
-            height: 44px;
+            width: 96px;
+            height: 36px;
             cursor: grab;
             user-select: none;
-            transition: right 0.3s cubic-bezier(0.34, 1.56, 0.64, 1);
+            transition: right 0.24s ease, opacity 0.24s ease, transform 0.24s ease;
             overflow: visible;
+            font-family: -apple-system, BlinkMacSystemFont, "Helvetica Neue", Helvetica, Arial, "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", sans-serif;
+        }
+
+        #${floatingEntryId}::before {
+            content: "";
+            position: absolute;
+            top: -8px;
+            bottom: -8px;
+            z-index: 0;
+        }
+
+        #${floatingEntryId}.bbvt-fe-side-right::before {
+            left: -74px;
+            right: 0;
+        }
+
+        #${floatingEntryId}.bbvt-fe-side-left::before {
+            left: 0;
+            right: -74px;
         }
 
         #${floatingEntryId}:not(.bbvt-fe-custom):hover {
@@ -350,139 +425,179 @@ function injectFloatingEntryStyles() {
 
         #${floatingEntryId}.bbvt-fe-custom {
             right: auto;
-            transition: opacity 0.3s ease;
+            transition: opacity 0.24s ease, transform 0.24s ease;
         }
 
         #${floatingEntryId}.bbvt-fe-hidden {
-            opacity: 0.15;
-            transition: opacity 0.5s ease;
+            opacity: 0.92;
         }
 
-        #${floatingEntryId} .bbvt-fe-settings {
+        #${floatingEntryId}.bbvt-fe-hidden.bbvt-fe-side-left {
+            transform: translateX(calc(-100% + var(--bbvt-fe-peek-width, 18px)));
+        }
+
+        #${floatingEntryId}.bbvt-fe-hidden.bbvt-fe-side-right {
+            transform: translateX(calc(100% - var(--bbvt-fe-peek-width, 18px)));
+        }
+
+        #${floatingEntryId} .bbvt-fe-settings,
+        #${floatingEntryId} .bbvt-fe-close {
             position: absolute;
-            top: -16px;
-            left: 50%;
-            transform: translateX(-50%);
-            width: 22px;
-            height: 22px;
+            top: 4px;
+            width: 28px;
+            height: 28px;
             border: 0;
             border-radius: 50%;
-            background: rgba(27, 31, 37, 0.94);
+            background: rgba(22, 25, 30, 0.94);
             color: rgb(232, 238, 243);
-            box-shadow: 0 2px 10px rgba(0, 0, 0, 0.28);
+            box-shadow: 0 8px 20px rgba(0, 0, 0, 0.24);
             font-size: 12px;
             font-weight: 700;
             line-height: 1;
             text-align: center;
             cursor: pointer;
             padding: 0;
-            z-index: 2;
+            z-index: 3;
             display: inline-flex;
             align-items: center;
             justify-content: center;
-            font-family: -apple-system, BlinkMacSystemFont, "Helvetica Neue", Helvetica, Arial, "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", sans-serif;
-            transition: transform 0.2s ease, background 0.2s ease, box-shadow 0.2s ease;
-        }
-
-        #${floatingEntryId} .bbvt-fe-settings:hover {
-            transform: translateX(-50%) scale(1.1);
-            background: rgba(42, 48, 57, 0.98);
-            box-shadow: 0 3px 10px rgba(0, 0, 0, 0.3);
-        }
-
-        #${floatingEntryId} .bbvt-fe-settings:active {
-            transform: translateX(-50%) scale(0.95);
-        }
-
-        #${floatingEntryId} .bbvt-fe-main {
-            position: absolute;
-            inset: 0;
-            width: 44px;
-            height: 44px;
-            border: 0;
-            border-radius: 50%;
-            background: linear-gradient(135deg, rgb(18, 183, 219), rgb(20, 134, 178));
-            color: white;
-            box-shadow: 0 4px 12px rgba(18, 183, 219, 0.32), 0 8px 24px rgba(0, 0, 0, 0.22);
-            font-size: 15px;
-            font-weight: 700;
-            cursor: pointer;
-            padding: 0;
-            font-family: -apple-system, BlinkMacSystemFont, "Helvetica Neue", Helvetica, Arial, "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", sans-serif;
-            transition: transform 0.2s cubic-bezier(0.34, 1.56, 0.64, 1), box-shadow 0.2s ease;
-        }
-
-        #${floatingEntryId} .bbvt-fe-main:hover {
-            transform: scale(1.08);
-            box-shadow: 0 6px 16px rgba(18, 183, 219, 0.42), 0 12px 32px rgba(0, 0, 0, 0.26);
-        }
-
-        #${floatingEntryId} .bbvt-fe-main:active {
-            transform: scale(0.95);
-        }
-
-        #${floatingEntryId}.bbvt-fe-disabled .bbvt-fe-main {
-            background: linear-gradient(135deg, rgb(112, 121, 132), rgb(72, 80, 90));
-            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.2);
-            animation: none;
-        }
-
-        #${floatingEntryId}.bbvt-fe-disabled:hover .bbvt-fe-main {
-            box-shadow: 0 6px 16px rgba(0, 0, 0, 0.25);
-        }
-
-        #${floatingEntryId}.bbvt-fe-warning .bbvt-fe-main {
-            background: linear-gradient(135deg, rgb(245, 158, 11), rgb(221, 94, 28));
-            box-shadow: 0 4px 12px rgba(245, 158, 11, 0.34), 0 8px 24px rgba(0, 0, 0, 0.22);
-            animation: fePulseWarning 2s infinite cubic-bezier(0.66, 0, 0, 1);
-        }
-
-        #${floatingEntryId}.bbvt-fe-warning:hover .bbvt-fe-main {
-            box-shadow: 0 6px 16px rgba(245, 158, 11, 0.48), 0 12px 32px rgba(0, 0, 0, 0.3);
-        }
-
-        @keyframes fePulseWarning {
-            0% { box-shadow: 0 0 0 0 rgba(245, 158, 11, 0.5); }
-            70% { box-shadow: 0 0 0 12px rgba(245, 158, 11, 0); }
-            100% { box-shadow: 0 0 0 0 rgba(245, 158, 11, 0); }
+            opacity: 0;
+            pointer-events: none;
+            transition: transform 0.18s ease, opacity 0.18s ease, background 0.18s ease, color 0.18s ease;
         }
 
         #${floatingEntryId} .bbvt-fe-close {
-            position: absolute;
-            top: -4px;
-            right: -4px;
-            width: 20px;
-            height: 20px;
-            border: 0;
-            border-radius: 50%;
-            background: rgba(27, 31, 37, 0.92);
-            color: rgb(215, 222, 229);
-            font-size: 14px;
-            line-height: 1;
-            text-align: center;
-            padding: 0;
-            cursor: pointer;
-            opacity: 0;
-            transform: scale(0.8);
-            pointer-events: none;
-            transition: all 0.2s ease;
-            z-index: 1;
-            box-shadow: 0 2px 6px rgba(0,0,0,0.3);
-            display: inline-flex;
-            align-items: center;
-            justify-content: center;
+            top: -2px;
+            width: 22px;
+            height: 22px;
+            box-shadow: 0 6px 16px rgba(0, 0, 0, 0.24);
         }
 
+        #${floatingEntryId}.bbvt-fe-side-right .bbvt-fe-settings {
+            left: -34px;
+            right: auto;
+            transform: translateX(12px) scale(0.9);
+        }
+
+        #${floatingEntryId}.bbvt-fe-side-right .bbvt-fe-close {
+            left: -58px;
+            right: auto;
+            transform: translateX(22px) scale(0.9);
+        }
+
+        #${floatingEntryId}.bbvt-fe-side-left .bbvt-fe-settings {
+            left: auto;
+            right: -34px;
+            transform: translateX(-12px) scale(0.9);
+        }
+
+        #${floatingEntryId}.bbvt-fe-side-left .bbvt-fe-close {
+            left: auto;
+            right: -58px;
+            transform: translateX(-22px) scale(0.9);
+        }
+
+        #${floatingEntryId}:hover .bbvt-fe-settings,
         #${floatingEntryId}:hover .bbvt-fe-close {
             opacity: 1;
-            transform: scale(1);
             pointer-events: auto;
+            transform: translateX(0) scale(1);
+        }
+
+        #${floatingEntryId} .bbvt-fe-settings:hover {
+            background: rgba(42, 48, 57, 0.98);
+            color: rgb(125, 224, 242);
         }
 
         #${floatingEntryId} .bbvt-fe-close:hover {
             background: rgba(232, 93, 93, 0.95);
             color: white;
-            transform: scale(1.15);
+        }
+
+        #${floatingEntryId} .bbvt-fe-main {
+            position: absolute;
+            inset: 0;
+            z-index: 2;
+            width: 96px;
+            height: 36px;
+            border: 1px solid rgba(18, 183, 219, 0.32);
+            border-radius: 999px;
+            background: rgba(22, 25, 30, 0.92);
+            color: rgb(239, 244, 248);
+            box-shadow: 0 10px 28px rgba(0, 0, 0, 0.28), inset 0 1px 0 rgba(255, 255, 255, 0.08);
+            backdrop-filter: blur(10px);
+            -webkit-backdrop-filter: blur(10px);
+            font-size: 13px;
+            font-weight: 700;
+            cursor: pointer;
+            padding: 0 11px;
+            display: grid;
+            grid-template-columns: 14px auto minmax(32px, 1fr);
+            align-items: center;
+            gap: 7px;
+            transition: transform 0.18s ease, border-color 0.18s ease, background 0.18s ease, box-shadow 0.18s ease;
+        }
+
+        #${floatingEntryId} .bbvt-fe-main:hover {
+            transform: translateY(-1px);
+            border-color: rgba(18, 183, 219, 0.58);
+            background: rgba(27, 31, 37, 0.96);
+            box-shadow: 0 12px 30px rgba(0, 0, 0, 0.3), 0 0 0 3px rgba(18, 183, 219, 0.08);
+        }
+
+        #${floatingEntryId} .bbvt-fe-main:active {
+            transform: translateY(0);
+        }
+
+        #${floatingEntryId} .bbvt-fe-label {
+            min-width: 0;
+            line-height: 1;
+            letter-spacing: 0;
+        }
+
+        #${floatingEntryId} .bbvt-fe-stat {
+            min-width: 0;
+            justify-self: end;
+            max-width: 42px;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+            padding: 2px 6px;
+            border-radius: 999px;
+            background: rgba(255, 255, 255, 0.08);
+            color: rgb(142, 154, 168);
+            font-size: 11px;
+            font-weight: 600;
+            line-height: 1.25;
+        }
+
+        #${floatingEntryId}.bbvt-fe-disabled .bbvt-fe-main {
+            border-color: rgba(15, 23, 42, 0.16);
+            background: rgba(246, 248, 251, 0.94);
+            color: rgb(45, 55, 72);
+            box-shadow: 0 8px 20px rgba(15, 23, 42, 0.18);
+        }
+
+        #${floatingEntryId}.bbvt-fe-disabled .bbvt-fe-stat {
+            background: rgba(15, 23, 42, 0.08);
+            color: rgb(84, 96, 112);
+        }
+
+        #${floatingEntryId}.bbvt-fe-warning .bbvt-fe-main {
+            border-color: rgba(245, 158, 11, 0.62);
+            box-shadow: 0 10px 28px rgba(0, 0, 0, 0.28), 0 0 0 3px rgba(245, 158, 11, 0.08);
+        }
+
+        #${floatingEntryId}.bbvt-fe-warning .bbvt-fe-main::after {
+            content: "";
+            position: absolute;
+            right: 8px;
+            top: 7px;
+            width: 5px;
+            height: 5px;
+            border-radius: 50%;
+            background: rgb(245, 158, 11);
+            box-shadow: 0 0 0 3px rgba(245, 158, 11, 0.14);
         }
 
         #${floatingEntryId} .bbvt-icon {

@@ -179,13 +179,13 @@ export function registerUserscriptMenu(context) {
     injectMenuStyles();
     context.openSettingsPanel = (anchorRect) => toggleSettingsPanel(context, anchorRect);
     context.openStatsPanel = () => openStatsPanel(context);
+    window.BilibiliBlockedVideosOpenSettings = context.openSettingsPanel;
+    window.BilibiliBlockedVideosShowFloatingEntry = () => showFloatingEntryFromMenu(context);
 
     if (typeof GM_registerMenuCommand === "function") {
-        GM_registerMenuCommand("屏蔽参数面板", context.openSettingsPanel);
-        return;
+        GM_registerMenuCommand("屏蔽参数面板", () => context.openSettingsPanel());
+        GM_registerMenuCommand("显示浮窗入口", () => showFloatingEntryFromMenu(context));
     }
-
-    window.BilibiliBlockedVideosOpenSettings = context.openSettingsPanel;
 }
 
 function toggleSettingsPanel(context, anchorRect) {
@@ -353,7 +353,7 @@ function positionPanel(panel, anchorRect) {
         width: 0,
         height: 44,
     };
-    const rect = anchorRect || fallbackRect;
+    const rect = isValidAnchorRect(anchorRect) ? anchorRect : fallbackRect;
     const anchorCenterY = rect.top + rect.height / 2;
     const opensLeft = rect.left > window.innerWidth / 2;
     const preferredLeft = opensLeft ? rect.left - panelWidth - margin : rect.right + margin;
@@ -372,6 +372,26 @@ function positionPanel(panel, anchorRect) {
     panel.style.height = `${panelHeight}px`;
     panel.style.left = `${left}px`;
     panel.style.top = `${top}px`;
+}
+
+function isValidAnchorRect(rect) {
+    if (!rect || typeof rect !== "object") {
+        return false;
+    }
+
+    return ["left", "right", "top", "height"].every((key) => Number.isFinite(Number(rect[key])));
+}
+
+function showFloatingEntryFromMenu(context) {
+    const settingsStore = context.settingsStore;
+    if (settingsStore?.exportSettings && settingsStore?.saveSettings) {
+        const settings = settingsStore.exportSettings();
+        settings.floatingEntryVisible_Switch = true;
+        settingsStore.saveSettings(settings);
+    }
+
+    context.floatingEntry?.show?.();
+    context.floatingEntry?.syncFromSettings?.();
 }
 
 function renderPanel(panel, context, state) {

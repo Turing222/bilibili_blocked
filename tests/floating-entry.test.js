@@ -191,14 +191,16 @@ describe("floating entry script toggle", () => {
         assert.equal(context.settingsStore.getSettings().scriptEnabled_Switch, false);
         assert.equal(context.calls.clearEffects, 1);
         assert.deepEqual(context.calls.refreshes, [{ reevaluate: true }]);
-        assert.equal(mainButton.textContent, "\u5173");
+        assert.equal(mainButton.querySelector(".bbvt-fe-label").textContent, "\u5173");
+        assert.equal(mainButton.querySelector(".bbvt-fe-stat").textContent, "\u6682\u505c");
 
         mainButton.dispatchEvent("click");
 
         assert.equal(context.settingsStore.getSettings().scriptEnabled_Switch, true);
         assert.equal(context.calls.clearEffects, 1);
         assert.deepEqual(context.calls.refreshes, [{ reevaluate: true }, { reevaluate: true }]);
-        assert.equal(mainButton.textContent, "\u5c4f");
+        assert.equal(mainButton.querySelector(".bbvt-fe-label").textContent, "\u5c4f");
+        assert.equal(mainButton.querySelector(".bbvt-fe-stat").textContent, "\u5c31\u7eea");
     });
 
     it("replaces stale floating DOM so the current toggle handler is bound", () => {
