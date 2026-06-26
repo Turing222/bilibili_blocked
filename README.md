@@ -137,3 +137,7 @@ npm run perf:boundary
 | 技术报告 | [`docs/technical-report.md`](docs/technical-report.md) |
 | 性能边界报告 | [`docs/performance-boundary-report-2026-06-26.md`](docs/performance-boundary-report-2026-06-26.md) |
 | 许可证全文 | [`LICENSE`](LICENSE) · [CC BY-NC-SA 4.0](https://creativecommons.org/licenses/by-nc-sa/4.0/) |
+
+## 社区
+
+本开源项目已链接并认可 [LINUX DO](https://linux.do) 社区。
