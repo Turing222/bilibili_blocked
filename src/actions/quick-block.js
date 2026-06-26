@@ -32,11 +32,13 @@ export function quickBlockVideo(context, videoBv, videoElement, x = 0, y = 0) {
     injectQuickBlockStyles();
 
     const videoInfo = context.videoStore.getVideoInfo(videoBv) || {};
+    const fullTitleValue = String(videoInfo.videoTitle || "").trim();
     const titleCandidates = getKeywordCandidates(videoInfo.videoTitle || "");
     const state = {
         upValue: videoInfo.videoUpUid || videoInfo.videoUpName || "",
         upDisplayText: getUpDisplayText(videoInfo),
-        titleValue: titleCandidates[0] || "",
+        fullTitleValue,
+        titleValue: "",
         titleCandidates,
         selectedTitleChips: new Set(),
         selectedTags: new Set(),
@@ -153,6 +155,16 @@ function buildQuickBlockPopupShell(overlay, context, state, videoBv, videoElemen
     const candidates = createQuickBlockEl("div", "qb-candidates");
     const titleQuickBtn = createQuickBlockEl("button", "qb-quick-btn", "屏蔽");
     setButtonIcon(titleQuickBtn, "shield", "屏蔽标题关键词", "屏蔽");
+    const fullTitleQuickBtn = createQuickBlockEl("button", "qb-quick-btn", "完整标题");
+    setButtonIcon(fullTitleQuickBtn, "shield", "屏蔽完整标题", "完整标题");
+    fullTitleQuickBtn.disabled = !state.fullTitleValue;
+    fullTitleQuickBtn.addEventListener("click", () => {
+        if (!state.fullTitleValue) return;
+        commitQuickBlock(context, videoElement, videoBv, () => {
+            appendBlockedTitles(context.settingsStore, [state.fullTitleValue]);
+        });
+        overlay.remove();
+    });
     const updateTitleQuickBtn = () => {
         titleQuickBtn.disabled = !hasQuickBlockSelection(state.selectedTitleChips, state.titleValue);
     };
@@ -172,7 +184,7 @@ function buildQuickBlockPopupShell(overlay, context, state, videoBv, videoElemen
         });
         overlay.remove();
     });
-    titleRow.append(titleField, titleQuickBtn);
+    titleRow.append(titleField, fullTitleQuickBtn, titleQuickBtn);
 
     const partitionRow = createQuickBlockEl("div", "qb-row qb-action-row");
     partitionRow.appendChild(createQuickBlockEl("div", "qb-row-label", "分区"));

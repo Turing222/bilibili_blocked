@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { afterEach, describe, it } from "node:test";
+import { afterEach, describe, it, mock } from "node:test";
 
 import { mountFloatingEntry } from "../src/ui/floating-entry.js";
 
@@ -173,6 +173,7 @@ function setupDom() {
 }
 
 afterEach(() => {
+    mock.timers.reset();
     delete globalThis.document;
     delete globalThis.window;
     delete globalThis.GM_addStyle;
@@ -226,5 +227,68 @@ describe("floating entry script toggle", () => {
         assert.equal(staleContainer.parentNode, null);
         assert.equal(context.settingsStore.getSettings().scriptEnabled_Switch, false);
         assert.equal(context.calls.clearEffects, 1);
+    });
+
+    it("toggles video and comment display modes from the floating quick panel", () => {
+        setupDom();
+        const context = createFloatingEntryContext({
+            hideVideoMode_Switch: false,
+            hideCommentMode_Switch: true,
+        });
+
+        mountFloatingEntry(context);
+        const container = globalThis.document.getElementById("bbvtFloatingEntry");
+        const modeButton = container.querySelector(".bbvt-fe-mode");
+        const modePanel = container.querySelector(".bbvt-fe-mode-panel");
+
+        assert.equal(modePanel.hidden, true);
+        modeButton.dispatchEvent("click", { stopPropagation() {} });
+        assert.equal(modePanel.hidden, false);
+
+        const choices = modePanel.querySelectorAll(".bbvt-fe-mode-choice");
+        const videoHideButton = choices.find((button) =>
+            button.dataset.modeKey === "hideVideoMode_Switch" && button.dataset.modeValue === "hide"
+        );
+        const commentOverlayButton = choices.find((button) =>
+            button.dataset.modeKey === "hideCommentMode_Switch" && button.dataset.modeValue === "overlay"
+        );
+
+        videoHideButton.dispatchEvent("click", { stopPropagation() {} });
+        commentOverlayButton.dispatchEvent("click", { stopPropagation() {} });
+
+        assert.equal(context.settingsStore.getSettings().hideVideoMode_Switch, true);
+        assert.equal(context.settingsStore.getSettings().hideCommentMode_Switch, false);
+        assert.deepEqual(context.calls.refreshes, [{ reevaluate: true }, { reevaluate: true }]);
+
+        modeButton.dispatchEvent("click", { stopPropagation() {} });
+    });
+
+    it("auto hides the floating mode panel after the pointer leaves it", () => {
+        mock.timers.enable({ apis: ["setTimeout"] });
+        setupDom();
+        const context = createFloatingEntryContext();
+
+        mountFloatingEntry(context);
+        const container = globalThis.document.getElementById("bbvtFloatingEntry");
+        const modeButton = container.querySelector(".bbvt-fe-mode");
+        const modePanel = container.querySelector(".bbvt-fe-mode-panel");
+
+        modeButton.dispatchEvent("click", { stopPropagation() {} });
+        assert.equal(modePanel.hidden, false);
+
+        mock.timers.tick(4999);
+        assert.equal(modePanel.hidden, false);
+
+        mock.timers.tick(1);
+        assert.equal(modePanel.hidden, true);
+
+        modeButton.dispatchEvent("click", { stopPropagation() {} });
+        modePanel.dispatchEvent("mouseenter");
+        mock.timers.tick(5000);
+        assert.equal(modePanel.hidden, false);
+
+        modePanel.dispatchEvent("mouseleave");
+        mock.timers.tick(5000);
+        assert.equal(modePanel.hidden, true);
     });
 });

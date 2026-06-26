@@ -25,11 +25,18 @@ function setupDom() {
             this.textContent = "";
             this.type = "button";
             this.title = "";
+            this.value = "";
+            this.placeholder = "";
+            this.disabled = false;
             this.dataset = {};
             this.parentNode = null;
             this.children = [];
             this.listeners = new Map();
             this.rect = { left: 10, top: 20, width: 300, height: 40, bottom: 60, right: 310 };
+        }
+
+        append(...nodesToAppend) {
+            nodesToAppend.forEach((node) => this.appendChild(node));
         }
 
         appendChild(node) {
@@ -39,6 +46,24 @@ function setupDom() {
                 nodes.set(node.id, node);
             }
             return node;
+        }
+
+        replaceChildren(...nextChildren) {
+            this.children.forEach((child) => {
+                child.parentNode = null;
+            });
+            this.children = [];
+            nextChildren.forEach((node) => this.appendChild(node));
+        }
+
+        querySelector(selector) {
+            return this.querySelectorAll(selector)[0] || null;
+        }
+
+        querySelectorAll(selector) {
+            const results = [];
+            collectMatchingElements(this, selector, results);
+            return results;
         }
 
         remove() {
@@ -63,8 +88,33 @@ function setupDom() {
             }
         }
 
+        setAttribute(name, value) {
+            this[name] = value;
+        }
+
+        focus() {}
+
+        select() {}
+
         getBoundingClientRect() {
             return this.rect;
+        }
+
+        get classList() {
+            return {
+                add: (className) => {
+                    if (!hasClass(this, className)) {
+                        this.className = `${this.className} ${className}`.trim();
+                    }
+                },
+                remove: (className) => {
+                    this.className = this.className
+                        .split(/\s+/)
+                        .filter((item) => item && item !== className)
+                        .join(" ");
+                },
+                contains: (className) => hasClass(this, className),
+            };
         }
     }
 
@@ -110,6 +160,27 @@ function setupDom() {
     };
 
     return { body, nodes, windowListeners };
+}
+
+function collectMatchingElements(root, selector, results) {
+    for (const child of root.children || []) {
+        if (matchesSelector(child, selector)) {
+            results.push(child);
+        }
+        collectMatchingElements(child, selector, results);
+    }
+}
+
+function matchesSelector(element, selector) {
+    if (selector.startsWith(".")) {
+        return hasClass(element, selector.slice(1));
+    }
+
+    return element.tagName.toLowerCase() === selector.toLowerCase();
+}
+
+function hasClass(element, className) {
+    return element.className.split(/\s+/).filter(Boolean).includes(className);
 }
 
 afterEach(() => {
@@ -199,6 +270,62 @@ describe("comment quick block master switch guard", () => {
         assert.equal(document.getElementById("bbvtCommentQuickBlockTrigger")?.hidden, true);
         assert.equal(commentElement.dataset.bbvtCommentQuickBlockTarget, undefined);
         assert.equal(document.getElementById("bbvtCommentQuickBlockTargetMarker"), null);
+    });
+
+    it("keeps the comment manual input empty and submits full text from its own button", async () => {
+        setupDom();
+
+        let savedSettings = {
+            scriptEnabled_Switch: true,
+            blockedCommentText_UseRegular: false,
+            blockedCommentText_Array: [],
+        };
+        const refreshes = [];
+        const context = {
+            settingsStore: {
+                getSettings: () => savedSettings,
+                exportSettings: () => ({ ...savedSettings }),
+                saveSettings(nextSettings) {
+                    savedSettings = { ...nextSettings };
+                    return savedSettings;
+                },
+            },
+            refresh: (options) => refreshes.push(options),
+        };
+        const commentElement = document.createElement("div");
+        document.body.appendChild(commentElement);
+
+        mountCommentQuickBlock(context, commentElement, {
+            text: "完整评论广告内容 完整评论广告内容 完整评论广告内容",
+            userId: "1",
+            userName: "用户",
+        });
+        commentElement.dispatchEvent("mouseenter");
+        const trigger = document.getElementById("bbvtCommentQuickBlockTrigger");
+        trigger.onclick({
+            preventDefault() {},
+            stopPropagation() {},
+            clientX: 100,
+            clientY: 120,
+            target: trigger,
+        });
+
+        const popup = document.getElementById("bbvtCommentQuickBlockPopup");
+        const input = popup.querySelector(".bbvt-comment-qb-input");
+        const confirmButton = popup.querySelectorAll("button")
+            .find((button) => button.title === "屏蔽评论内容");
+        const fullTextButton = popup.querySelectorAll("button")
+            .find((button) => button.title === "屏蔽整条评论文本");
+
+        assert.equal(input.value, "");
+        assert.equal(confirmButton.disabled, true);
+
+        fullTextButton.dispatchEvent("click");
+
+        assert.deepEqual(savedSettings.blockedCommentText_Array, ["完整评论广告内容"]);
+        assert.deepEqual(refreshes, [undefined]);
+
+        await new Promise((resolve) => setTimeout(resolve, 0));
     });
 
     it("repositions the trigger and target marker on scroll", () => {

@@ -4,6 +4,8 @@ const floatingEntryId = "bbvtFloatingEntry";
 const storagePosKey = "bbvtFloatingPos";
 const visibleSettingKey = "floatingEntryVisible_Switch";
 const scriptEnabledSettingKey = "scriptEnabled_Switch";
+const hideVideoModeSettingKey = "hideVideoMode_Switch";
+const hideCommentModeSettingKey = "hideCommentMode_Switch";
 const floatingEntryPeekWidth = 18;
 
 export function mountFloatingEntry(context) {
@@ -18,6 +20,10 @@ function createFloatingEntryController(context) {
     let container = null;
     let mainBtn = null;
     let settingsBtn = null;
+    let modeBtn = null;
+    let modePanel = null;
+    let modePanelHideTimer = null;
+    let modePanelPointerInside = false;
     let mainLabel = null;
     let mainStat = null;
     let drag = null;
@@ -45,6 +51,8 @@ function createFloatingEntryController(context) {
             container = existing;
             mainBtn = existing.querySelector(".bbvt-fe-main");
             settingsBtn = existing.querySelector(".bbvt-fe-settings");
+            modeBtn = existing.querySelector(".bbvt-fe-mode");
+            modePanel = existing.querySelector(".bbvt-fe-mode-panel");
             mainLabel = existing.querySelector(".bbvt-fe-label");
             mainStat = existing.querySelector(".bbvt-fe-stat");
             syncViewportMetrics();
@@ -95,6 +103,13 @@ function createFloatingEntryController(context) {
         settingsBtn.setAttribute("aria-label", "打开设置");
         setButtonIcon(settingsBtn, "settings", "打开设置");
 
+        modeBtn = document.createElement("button");
+        modeBtn.className = "bbvt-fe-mode";
+        modeBtn.type = "button";
+        modeBtn.title = "快速切换遮罩/隐藏";
+        modeBtn.setAttribute("aria-label", "快速切换遮罩/隐藏");
+        setButtonIcon(modeBtn, "eye", "快速切换遮罩/隐藏");
+
         mainBtn = document.createElement("button");
         mainBtn.className = "bbvt-fe-main";
         mainBtn.type = "button";
@@ -113,7 +128,9 @@ function createFloatingEntryController(context) {
         setButtonIcon(closeBtn, "close", "隐藏浮窗");
         closeBtn.addEventListener("click", () => hide());
 
-        container.append(settingsBtn, mainBtn, closeBtn);
+        modePanel = createModePanel();
+
+        container.append(settingsBtn, modeBtn, mainBtn, closeBtn, modePanel);
         document.body.appendChild(container);
     }
 
@@ -139,6 +156,7 @@ function createFloatingEntryController(context) {
             if (justDragged) { justDragged = false; return; }
             clearTimeout(hideTimer);
             container.classList.remove("bbvt-fe-hidden");
+            closeModePanel();
             toggleScriptEnabled();
         });
 
@@ -152,10 +170,23 @@ function createFloatingEntryController(context) {
             if (justDragged) { justDragged = false; return; }
             clearTimeout(hideTimer);
             container.classList.remove("bbvt-fe-hidden");
+            closeModePanel();
             context.openSettingsPanel?.(settingsBtn.getBoundingClientRect());
         });
 
         settingsBtn.addEventListener("mousedown", (e) => {
+            e.stopPropagation();
+        });
+
+        modeBtn.addEventListener("click", (e) => {
+            e.stopPropagation();
+            if (justDragged) { justDragged = false; return; }
+            clearTimeout(hideTimer);
+            container.classList.remove("bbvt-fe-hidden");
+            toggleModePanel();
+        });
+
+        modeBtn.addEventListener("mousedown", (e) => {
             e.stopPropagation();
         });
 
@@ -173,7 +204,7 @@ function createFloatingEntryController(context) {
         });
 
         container.addEventListener("mousedown", (e) => {
-            if (e.target.closest?.(".bbvt-fe-close, .bbvt-fe-settings, .bbvt-fe-main")) {
+            if (e.target.closest?.(".bbvt-fe-close, .bbvt-fe-settings, .bbvt-fe-mode, .bbvt-fe-main, .bbvt-fe-mode-panel")) {
                 return;
             }
             e.preventDefault();
@@ -273,6 +304,7 @@ function createFloatingEntryController(context) {
 
         if (!enabled) {
             container.classList.remove("bbvt-fe-warning");
+            closeModePanel();
             updateMainContent("关", "暂停");
             return;
         }
@@ -291,6 +323,7 @@ function createFloatingEntryController(context) {
     function syncFromSettings() {
         setVisible(isFloatingEntryVisible(context), false);
         syncScriptEnabledState();
+        syncModePanel();
     }
 
     function setVisible(visible, persist) {
@@ -307,7 +340,133 @@ function createFloatingEntryController(context) {
         container.classList.toggle("bbvt-fe-closed", !visible);
         if (visible) {
             container.classList.remove("bbvt-fe-hidden");
+        } else {
+            closeModePanel();
         }
+    }
+
+    function createModePanel() {
+        const panel = document.createElement("div");
+        panel.className = "bbvt-fe-mode-panel";
+        panel.hidden = true;
+        panel.addEventListener("mouseenter", () => {
+            modePanelPointerInside = true;
+            clearModePanelHideTimer();
+        });
+        panel.addEventListener("mouseleave", () => {
+            modePanelPointerInside = false;
+            scheduleModePanelHide();
+        });
+        panel.append(
+            createModeRow("视频", hideVideoModeSettingKey),
+            createModeRow("评论", hideCommentModeSettingKey)
+        );
+        return panel;
+    }
+
+    function createModeRow(label, settingKey) {
+        const row = document.createElement("div");
+        row.className = "bbvt-fe-mode-row";
+
+        const rowLabel = document.createElement("span");
+        rowLabel.className = "bbvt-fe-mode-label";
+        rowLabel.textContent = label;
+
+        const group = document.createElement("div");
+        group.className = "bbvt-fe-mode-group";
+        group.append(
+            createModeChoice(settingKey, false, "遮罩"),
+            createModeChoice(settingKey, true, "隐藏")
+        );
+
+        row.append(rowLabel, group);
+        return row;
+    }
+
+    function createModeChoice(settingKey, hideMode, label) {
+        const button = document.createElement("button");
+        button.type = "button";
+        button.className = "bbvt-fe-mode-choice";
+        button.dataset.modeKey = settingKey;
+        button.dataset.modeValue = hideMode ? "hide" : "overlay";
+        button.textContent = label;
+        button.addEventListener("click", (event) => {
+            event.stopPropagation();
+            setDisplayMode(settingKey, hideMode);
+        });
+        return button;
+    }
+
+    function toggleModePanel() {
+        if (!modePanel) {
+            return;
+        }
+
+        if (modePanel.hidden) {
+            modePanel.hidden = false;
+            syncModePanel();
+            scheduleModePanelHide();
+            return;
+        }
+
+        closeModePanel();
+    }
+
+    function closeModePanel() {
+        clearModePanelHideTimer();
+        modePanelPointerInside = false;
+        if (modePanel) {
+            modePanel.hidden = true;
+        }
+    }
+
+    function scheduleModePanelHide() {
+        clearModePanelHideTimer();
+        if (!modePanel || modePanel.hidden || modePanelPointerInside) {
+            return;
+        }
+
+        modePanelHideTimer = setTimeout(() => {
+            closeModePanel();
+        }, 5000);
+    }
+
+    function clearModePanelHideTimer() {
+        if (modePanelHideTimer) {
+            clearTimeout(modePanelHideTimer);
+            modePanelHideTimer = null;
+        }
+    }
+
+    function syncModePanel() {
+        if (!modePanel?.querySelectorAll) {
+            return;
+        }
+
+        const settings = context.settingsStore?.getSettings?.() || {};
+        modePanel.querySelectorAll(".bbvt-fe-mode-choice").forEach((button) => {
+            const hideMode = button.dataset.modeValue === "hide";
+            const active = Boolean(settings[button.dataset.modeKey]) === hideMode;
+            button.classList.toggle("bbvt-fe-mode-choice-active", active);
+        });
+    }
+
+    function setDisplayMode(settingKey, hideMode) {
+        const settingsStore = context.settingsStore;
+        if (!settingsStore?.exportSettings || !settingsStore?.saveSettings) {
+            return;
+        }
+
+        const settings = settingsStore.exportSettings();
+        if (Boolean(settings[settingKey]) === hideMode) {
+            syncModePanel();
+            return;
+        }
+
+        settings[settingKey] = hideMode;
+        settingsStore.saveSettings(settings);
+        syncModePanel();
+        context.refresh?.({ reevaluate: true });
     }
 
     function updateMainContent(label, stat) {
@@ -406,13 +565,13 @@ function injectFloatingEntryStyles() {
         }
 
         #${floatingEntryId}.bbvt-fe-side-right::before {
-            left: -74px;
+            left: -106px;
             right: 0;
         }
 
         #${floatingEntryId}.bbvt-fe-side-left::before {
             left: 0;
-            right: -74px;
+            right: -106px;
         }
 
         #${floatingEntryId}:not(.bbvt-fe-custom):hover {
@@ -441,6 +600,7 @@ function injectFloatingEntryStyles() {
         }
 
         #${floatingEntryId} .bbvt-fe-settings,
+        #${floatingEntryId} .bbvt-fe-mode,
         #${floatingEntryId} .bbvt-fe-close {
             position: absolute;
             top: 4px;
@@ -467,9 +627,9 @@ function injectFloatingEntryStyles() {
         }
 
         #${floatingEntryId} .bbvt-fe-close {
-            top: -2px;
-            width: 22px;
-            height: 22px;
+            top: 0;
+            width: 18px;
+            height: 18px;
             box-shadow: 0 6px 16px rgba(0, 0, 0, 0.24);
         }
 
@@ -479,10 +639,16 @@ function injectFloatingEntryStyles() {
             transform: translateX(12px) scale(0.9);
         }
 
-        #${floatingEntryId}.bbvt-fe-side-right .bbvt-fe-close {
-            left: -58px;
+        #${floatingEntryId}.bbvt-fe-side-right .bbvt-fe-mode {
+            left: -66px;
             right: auto;
-            transform: translateX(22px) scale(0.9);
+            transform: translateX(18px) scale(0.9);
+        }
+
+        #${floatingEntryId}.bbvt-fe-side-right .bbvt-fe-close {
+            left: -88px;
+            right: auto;
+            transform: translateX(26px) scale(0.9);
         }
 
         #${floatingEntryId}.bbvt-fe-side-left .bbvt-fe-settings {
@@ -491,13 +657,20 @@ function injectFloatingEntryStyles() {
             transform: translateX(-12px) scale(0.9);
         }
 
+        #${floatingEntryId}.bbvt-fe-side-left .bbvt-fe-mode {
+            left: auto;
+            right: -66px;
+            transform: translateX(-18px) scale(0.9);
+        }
+
         #${floatingEntryId}.bbvt-fe-side-left .bbvt-fe-close {
             left: auto;
-            right: -58px;
-            transform: translateX(-22px) scale(0.9);
+            right: -88px;
+            transform: translateX(-26px) scale(0.9);
         }
 
         #${floatingEntryId}:hover .bbvt-fe-settings,
+        #${floatingEntryId}:hover .bbvt-fe-mode,
         #${floatingEntryId}:hover .bbvt-fe-close {
             opacity: 1;
             pointer-events: auto;
@@ -509,8 +682,102 @@ function injectFloatingEntryStyles() {
             color: rgb(125, 224, 242);
         }
 
+        #${floatingEntryId} .bbvt-fe-mode:hover {
+            background: rgba(42, 48, 57, 0.98);
+            color: rgb(125, 224, 242);
+        }
+
         #${floatingEntryId} .bbvt-fe-close:hover {
             background: rgba(232, 93, 93, 0.95);
+            color: white;
+        }
+
+        #${floatingEntryId} .bbvt-fe-close .bbvt-icon {
+            width: 10px;
+            height: 10px;
+        }
+
+        #${floatingEntryId} .bbvt-fe-mode-panel {
+            position: absolute;
+            top: 42px;
+            z-index: 4;
+            width: 168px;
+            box-sizing: border-box;
+            padding: 8px;
+            border: 1px solid rgba(255, 255, 255, 0.12);
+            border-radius: 8px;
+            background: rgba(22, 25, 30, 0.96);
+            color: rgb(239, 244, 248);
+            box-shadow: 0 12px 28px rgba(0, 0, 0, 0.3);
+            backdrop-filter: blur(12px);
+            -webkit-backdrop-filter: blur(12px);
+        }
+
+        #${floatingEntryId} .bbvt-fe-mode-panel[hidden] {
+            display: none;
+        }
+
+        #${floatingEntryId}.bbvt-fe-side-right .bbvt-fe-mode-panel {
+            right: 0;
+        }
+
+        #${floatingEntryId}.bbvt-fe-side-left .bbvt-fe-mode-panel {
+            left: 0;
+        }
+
+        #${floatingEntryId} .bbvt-fe-mode-row {
+            display: grid;
+            grid-template-columns: 34px 1fr;
+            align-items: center;
+            gap: 8px;
+        }
+
+        #${floatingEntryId} .bbvt-fe-mode-row + .bbvt-fe-mode-row {
+            margin-top: 6px;
+        }
+
+        #${floatingEntryId} .bbvt-fe-mode-label {
+            color: rgb(170, 181, 193);
+            font-size: 12px;
+            font-weight: 700;
+            line-height: 1;
+        }
+
+        #${floatingEntryId} .bbvt-fe-mode-group {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            overflow: hidden;
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            border-radius: 7px;
+            background: rgba(12, 15, 19, 0.58);
+        }
+
+        #${floatingEntryId} .bbvt-fe-mode-choice {
+            min-width: 0;
+            height: 26px;
+            border: 0;
+            border-right: 1px solid rgba(255, 255, 255, 0.1);
+            background: transparent;
+            color: rgb(196, 205, 214);
+            font-size: 12px;
+            font-weight: 700;
+            line-height: 1;
+            cursor: pointer;
+            padding: 0 8px;
+            font-family: inherit;
+        }
+
+        #${floatingEntryId} .bbvt-fe-mode-choice:last-child {
+            border-right: 0;
+        }
+
+        #${floatingEntryId} .bbvt-fe-mode-choice:hover {
+            background: rgba(18, 183, 219, 0.16);
+            color: rgb(125, 224, 242);
+        }
+
+        #${floatingEntryId} .bbvt-fe-mode-choice-active {
+            background: rgb(18, 183, 219);
             color: white;
         }
 

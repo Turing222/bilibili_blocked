@@ -9,6 +9,59 @@ afterEach(() => {
 });
 
 describe("quick block popup", () => {
+    it("keeps title keywords separate from the full title action", () => {
+        setupDom();
+
+        let savedSettings = {
+            scriptEnabled_Switch: true,
+            blockedTitle_UseRegular: false,
+            blockedTitle_Array: [],
+        };
+        const refreshes = [];
+        const context = {
+            settingsStore: {
+                getSettings: () => savedSettings,
+                exportSettings: () => ({ ...savedSettings }),
+                saveSettings(nextSettings) {
+                    savedSettings = { ...nextSettings };
+                    return savedSettings;
+                },
+            },
+            videoStore: {
+                getVideoInfo: () => ({
+                    videoTitle: "完整标题 测试",
+                    videoUpUid: "123",
+                    videoUpName: "Creator",
+                }),
+            },
+            apiClient: {
+                ensurePartitionData: () => Promise.resolve({ name: "Music", id: "3" }),
+                ensureTagsData: () => Promise.resolve(["tag-a", "tag-b"]),
+            },
+            refresh: (options) => refreshes.push(options),
+        };
+
+        const videoElement = document.createElement("div");
+
+        quickBlockVideo(context, "BV1test", videoElement, 100, 120);
+        const overlay = document.getElementById("bbvtQuickBlock");
+        const inputs = overlay.querySelectorAll(".qb-input");
+        const titleInput = inputs[1];
+        const titleButton = overlay.querySelectorAll(".qb-quick-btn")
+            .find((button) => button.title === "屏蔽标题关键词");
+        const fullTitleButton = overlay.querySelectorAll(".qb-quick-btn")
+            .find((button) => button.title === "屏蔽完整标题");
+
+        assert.equal(titleInput.value, "");
+        assert.equal(titleButton.disabled, true);
+        assert.equal(fullTitleButton.disabled, false);
+
+        fullTitleButton.dispatchEvent("click");
+
+        assert.deepEqual(savedSettings.blockedTitle_Array, ["完整标题 测试"]);
+        assert.deepEqual(refreshes, [{ reevaluate: true }]);
+    });
+
     it("does not restart the enter animation when async data refreshes the popup", async () => {
         setupDom();
 
@@ -157,6 +210,21 @@ class FakeElement {
         this.listeners.set(type, handlers);
     }
 
+    dispatchEvent(type, event = {}) {
+        const handlers = this.listeners.get(type) || [];
+        handlers.forEach((handler) => handler(event));
+    }
+
+    querySelector(selector) {
+        return this.querySelectorAll(selector)[0] || null;
+    }
+
+    querySelectorAll(selector) {
+        const results = [];
+        collectMatchingElements(this, selector, results);
+        return results;
+    }
+
     contains(node) {
         if (node === this) {
             return true;
@@ -172,6 +240,23 @@ class FakeElement {
     get offsetWidth() {
         return 380;
     }
+}
+
+function collectMatchingElements(root, selector, results) {
+    for (const child of root.children || []) {
+        if (matchesSelector(child, selector)) {
+            results.push(child);
+        }
+        collectMatchingElements(child, selector, results);
+    }
+}
+
+function matchesSelector(element, selector) {
+    if (selector.startsWith(".")) {
+        return element.className.split(/\s+/).filter(Boolean).includes(selector.slice(1));
+    }
+
+    return element.tagName.toLowerCase() === selector.toLowerCase();
 }
 
 function createStyle(element) {

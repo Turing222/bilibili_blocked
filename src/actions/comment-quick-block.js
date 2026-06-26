@@ -16,6 +16,7 @@ const targetMarkerId = "bbvtCommentQuickBlockTargetMarker";
 const popupId = "bbvtCommentQuickBlockPopup";
 const styleId = "bbvtCommentQuickBlockStyles";
 const maxQuickBlockTextLength = 160;
+const minRepeatedFullTextLength = 4;
 
 const commentQuickBlockStates = new WeakMap();
 let hideTriggerTimer = null;
@@ -178,11 +179,12 @@ function openCommentQuickBlockPopup(context, commentElement, commentInfo, x, y) 
     clearHideTriggerTimer();
     markCommentQuickBlockTarget(commentElement);
 
-    const initialText = getInitialQuickBlockText(commentElement, commentInfo.text);
+    const initialText = getInitialQuickBlockText(commentElement);
+    const fullText = getFullQuickBlockText(commentInfo.text);
     const userRule = getCommentUserRule(commentInfo);
     const keywordCandidates = getKeywordCandidates(commentInfo.text || initialText);
     const selectedKeywords = new Set();
-    if (!initialText && keywordCandidates.length === 0 && !userRule) {
+    if (!initialText && !fullText && keywordCandidates.length === 0 && !userRule) {
         return;
     }
 
@@ -235,6 +237,21 @@ function openCommentQuickBlockPopup(context, commentElement, commentInfo, x, y) 
     confirmButton.type = "button";
     confirmButton.className = "bbvt-comment-qb-primary";
     setButtonIcon(confirmButton, "shield", "屏蔽评论内容", "屏蔽内容");
+    const fullTextButton = document.createElement("button");
+    fullTextButton.type = "button";
+    fullTextButton.className = "bbvt-comment-qb-secondary";
+    setButtonIcon(fullTextButton, "shield", "屏蔽整条评论文本", "屏蔽全文");
+    fullTextButton.hidden = !fullText;
+    fullTextButton.addEventListener("click", () => {
+        if (!fullText) {
+            return;
+        }
+
+        appendBlockedCommentTexts(context.settingsStore, [fullText]);
+        context.refresh?.();
+        closeCommentQuickBlockPopup();
+        hideCommentQuickBlockTrigger();
+    });
     const cancelButton = document.createElement("button");
     cancelButton.type = "button";
     cancelButton.className = "bbvt-comment-qb-secondary";
@@ -264,7 +281,7 @@ function openCommentQuickBlockPopup(context, commentElement, commentInfo, x, y) 
         hideCommentQuickBlockTrigger();
     });
 
-    actions.append(userButton, confirmButton, cancelButton);
+    actions.append(userButton, fullTextButton, confirmButton, cancelButton);
     panel.append(header, candidates, input, actions);
     popup.appendChild(panel);
     popup.addEventListener("mousedown", (event) => event.stopPropagation());
@@ -445,9 +462,67 @@ function unbindCommentQuickBlockTargetMarkerListeners() {
     targetMarkerListenersBound = false;
 }
 
-function getInitialQuickBlockText(commentElement, commentText) {
+function getInitialQuickBlockText(commentElement) {
     const selectedText = getSelectedCommentText(commentElement);
-    return truncateQuickBlockText(selectedText || commentText);
+    return truncateQuickBlockText(selectedText);
+}
+
+function getFullQuickBlockText(commentText) {
+    return truncateQuickBlockText(collapseRepeatedQuickBlockText(commentText));
+}
+
+function collapseRepeatedQuickBlockText(value) {
+    const text = normalizeQuickBlockText(value);
+    if (!text) {
+        return "";
+    }
+
+    return collapseRepeatedTokenText(text) || collapseRepeatedContinuousText(text) || text;
+}
+
+function collapseRepeatedTokenText(text) {
+    const tokens = text.split(" ").filter(Boolean);
+    if (tokens.length < 2) {
+        return "";
+    }
+
+    for (let size = 1; size <= Math.floor(tokens.length / 2); size++) {
+        if (tokens.length % size !== 0) {
+            continue;
+        }
+
+        const candidate = tokens.slice(0, size);
+        const candidateText = candidate.join(" ");
+        if (candidateText.length < minRepeatedFullTextLength) {
+            continue;
+        }
+
+        const repeated = tokens.every((token, index) => token === candidate[index % size]);
+        if (repeated) {
+            return candidateText;
+        }
+    }
+
+    return "";
+}
+
+function collapseRepeatedContinuousText(text) {
+    if (text.length < minRepeatedFullTextLength * 2) {
+        return "";
+    }
+
+    for (let size = minRepeatedFullTextLength; size <= Math.floor(text.length / 2); size++) {
+        if (text.length % size !== 0) {
+            continue;
+        }
+
+        const candidate = text.slice(0, size);
+        if (candidate.repeat(text.length / size) === text) {
+            return candidate;
+        }
+    }
+
+    return "";
 }
 
 function getSelectedCommentText(commentElement) {
