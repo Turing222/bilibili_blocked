@@ -1,3 +1,5 @@
+import { setButtonIcon } from "./icons.js";
+
 const floatingEntryId = "bbvtFloatingEntry";
 const storagePosKey = "bbvtFloatingPos";
 const visibleSettingKey = "floatingEntryVisible_Switch";
@@ -77,8 +79,8 @@ function createFloatingEntryController(context) {
         settingsBtn.className = "bbvt-fe-settings";
         settingsBtn.type = "button";
         settingsBtn.title = "打开 Bilibili 屏蔽参数面板";
-        settingsBtn.textContent = "设";
         settingsBtn.setAttribute("aria-label", "打开设置");
+        setButtonIcon(settingsBtn, "settings", "打开设置");
 
         mainBtn = document.createElement("button");
         mainBtn.className = "bbvt-fe-main";
@@ -94,7 +96,7 @@ function createFloatingEntryController(context) {
         closeBtn.className = "bbvt-fe-close";
         closeBtn.type = "button";
         closeBtn.title = "隐藏浮窗，可在设置面板恢复";
-        closeBtn.textContent = "×";
+        setButtonIcon(closeBtn, "close", "隐藏浮窗");
         closeBtn.addEventListener("click", () => hide());
 
         container.append(settingsBtn, mainBtn, badge, closeBtn);
@@ -365,23 +367,26 @@ function injectFloatingEntryStyles() {
             height: 22px;
             border: 0;
             border-radius: 50%;
-            background: rgba(50, 50, 50, 0.92);
-            color: #eee;
-            box-shadow: 0 2px 8px rgba(0, 0, 0, 0.25);
-            font-size: 11px;
+            background: rgba(27, 31, 37, 0.94);
+            color: rgb(232, 238, 243);
+            box-shadow: 0 2px 10px rgba(0, 0, 0, 0.28);
+            font-size: 12px;
             font-weight: 700;
-            line-height: 22px;
+            line-height: 1;
             text-align: center;
             cursor: pointer;
             padding: 0;
             z-index: 2;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
             font-family: -apple-system, BlinkMacSystemFont, "Helvetica Neue", Helvetica, Arial, "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", sans-serif;
             transition: transform 0.2s ease, background 0.2s ease, box-shadow 0.2s ease;
         }
 
         #${floatingEntryId} .bbvt-fe-settings:hover {
             transform: translateX(-50%) scale(1.1);
-            background: rgba(70, 70, 70, 0.95);
+            background: rgba(42, 48, 57, 0.98);
             box-shadow: 0 3px 10px rgba(0, 0, 0, 0.3);
         }
 
@@ -396,9 +401,9 @@ function injectFloatingEntryStyles() {
             height: 44px;
             border: 0;
             border-radius: 50%;
-            background: linear-gradient(135deg, rgb(0, 190, 255), rgb(0, 160, 214));
+            background: linear-gradient(135deg, rgb(18, 183, 219), rgb(20, 134, 178));
             color: white;
-            box-shadow: 0 4px 12px rgba(0, 174, 236, 0.4), 0 8px 24px rgba(0, 0, 0, 0.2);
+            box-shadow: 0 4px 12px rgba(18, 183, 219, 0.32), 0 8px 24px rgba(0, 0, 0, 0.22);
             font-size: 15px;
             font-weight: 700;
             cursor: pointer;
@@ -409,7 +414,7 @@ function injectFloatingEntryStyles() {
 
         #${floatingEntryId} .bbvt-fe-main:hover {
             transform: scale(1.08);
-            box-shadow: 0 6px 16px rgba(0, 174, 236, 0.5), 0 12px 32px rgba(0, 0, 0, 0.25);
+            box-shadow: 0 6px 16px rgba(18, 183, 219, 0.42), 0 12px 32px rgba(0, 0, 0, 0.26);
         }
 
         #${floatingEntryId} .bbvt-fe-main:active {
@@ -417,7 +422,7 @@ function injectFloatingEntryStyles() {
         }
 
         #${floatingEntryId}.bbvt-fe-disabled .bbvt-fe-main {
-            background: linear-gradient(135deg, rgb(130, 130, 130), rgb(90, 90, 90));
+            background: linear-gradient(135deg, rgb(112, 121, 132), rgb(72, 80, 90));
             box-shadow: 0 4px 12px rgba(0, 0, 0, 0.2);
             animation: none;
         }
@@ -427,19 +432,19 @@ function injectFloatingEntryStyles() {
         }
 
         #${floatingEntryId}.bbvt-fe-warning .bbvt-fe-main {
-            background: linear-gradient(135deg, rgb(255, 120, 60), rgb(220, 60, 20));
-            box-shadow: 0 4px 12px rgba(255, 100, 50, 0.4), 0 8px 24px rgba(0, 0, 0, 0.2);
+            background: linear-gradient(135deg, rgb(245, 158, 11), rgb(221, 94, 28));
+            box-shadow: 0 4px 12px rgba(245, 158, 11, 0.34), 0 8px 24px rgba(0, 0, 0, 0.22);
             animation: fePulseWarning 2s infinite cubic-bezier(0.66, 0, 0, 1);
         }
 
         #${floatingEntryId}.bbvt-fe-warning:hover .bbvt-fe-main {
-            box-shadow: 0 6px 16px rgba(255, 100, 50, 0.6), 0 12px 32px rgba(0, 0, 0, 0.3);
+            box-shadow: 0 6px 16px rgba(245, 158, 11, 0.48), 0 12px 32px rgba(0, 0, 0, 0.3);
         }
 
         @keyframes fePulseWarning {
-            0% { box-shadow: 0 0 0 0 rgba(255, 100, 50, 0.5); }
-            70% { box-shadow: 0 0 0 12px rgba(255, 100, 50, 0); }
-            100% { box-shadow: 0 0 0 0 rgba(255, 100, 50, 0); }
+            0% { box-shadow: 0 0 0 0 rgba(245, 158, 11, 0.5); }
+            70% { box-shadow: 0 0 0 12px rgba(245, 158, 11, 0); }
+            100% { box-shadow: 0 0 0 0 rgba(245, 158, 11, 0); }
         }
 
         #${floatingEntryId} .bbvt-fe-close {
@@ -450,10 +455,10 @@ function injectFloatingEntryStyles() {
             height: 20px;
             border: 0;
             border-radius: 50%;
-            background: rgba(40, 40, 40, 0.9);
-            color: #ccc;
+            background: rgba(27, 31, 37, 0.92);
+            color: rgb(215, 222, 229);
             font-size: 14px;
-            line-height: 20px;
+            line-height: 1;
             text-align: center;
             padding: 0;
             cursor: pointer;
@@ -463,6 +468,9 @@ function injectFloatingEntryStyles() {
             transition: all 0.2s ease;
             z-index: 1;
             box-shadow: 0 2px 6px rgba(0,0,0,0.3);
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
         }
 
         #${floatingEntryId}:hover .bbvt-fe-close {
@@ -472,9 +480,15 @@ function injectFloatingEntryStyles() {
         }
 
         #${floatingEntryId} .bbvt-fe-close:hover {
-            background: rgba(255, 60, 60, 0.9);
+            background: rgba(232, 93, 93, 0.95);
             color: white;
             transform: scale(1.15);
+        }
+
+        #${floatingEntryId} .bbvt-icon {
+            width: 13px;
+            height: 13px;
+            flex: 0 0 auto;
         }
     `;
 

@@ -10,6 +10,7 @@
 // - 不写具体屏蔽规则。
 
 import { openStatsPanel } from "../ui/stats-panel.js";
+import { setButtonIcon } from "../ui/icons.js";
 import { appendUnique, removeItems } from "../settings/mutations.js";
 import { safeRegexTest } from "../utils/regex.js";
 import {
@@ -33,8 +34,8 @@ const arrayKeyToStatsType = {
     blockedTrendingItem_Array: "按关键词屏蔽热搜项",
 };
 
-const countedChipColor = "rgba(0, 174, 236, 0.25)";
-const chipHeatColors = [null, "rgba(0, 174, 236, 0.4)", "rgba(0, 174, 236, 0.55)", "rgba(0, 174, 236, 0.7)", "rgba(0, 174, 236, 0.85)", "rgb(0, 174, 236)"];
+const countedChipColor = "rgba(18, 183, 219, 0.25)";
+const chipHeatColors = [null, "rgba(18, 183, 219, 0.4)", "rgba(18, 183, 219, 0.55)", "rgba(18, 183, 219, 0.7)", "rgba(18, 183, 219, 0.85)", "rgb(18, 183, 219)"];
 const upSuggestionMinBlockedCount = 5;
 
 function computeChipHeatLevel(count, total) {
@@ -429,6 +430,7 @@ function renderHeader(panel, context, state, status) {
     const title = createElement("div", "bbvt-title", "Bilibili 屏蔽参数面板");
     const subtitle = createElement("div", "bbvt-subtitle", "分组编辑配置，保存后立即生效");
     const closeButton = createElement("button", "bbvt-close", "×");
+    setButtonIcon(closeButton, "close", "保存并关闭");
 
     closeButton.type = "button";
     closeButton.addEventListener("click", () => {
@@ -968,12 +970,18 @@ function applyImmediateSetting(context, state) {
 
 function renderActions(panel, context, state, status) {
     const actions = createElement("div", "bbvt-actions");
-    const reloadButton = createElement("button", "", "读取");
-    const saveButton = createElement("button", "", "保存");
-    const importButton = createElement("button", "", "导入");
-    const exportButton = createElement("button", "", "导出");
-    const overlayButton = createElement("button", "", "切换叠加层");
-    const jsonButton = createElement("button", "", "JSON");
+    const reloadButton = createElement("button", "bbvt-action-button");
+    const saveButton = createElement("button", "bbvt-action-button bbvt-action-primary");
+    const importButton = createElement("button", "bbvt-action-button");
+    const exportButton = createElement("button", "bbvt-action-button");
+    const overlayButton = createElement("button", "bbvt-action-button");
+    const jsonButton = createElement("button", "bbvt-action-button");
+    setButtonIcon(reloadButton, "refresh", "重新读取当前配置", "读取");
+    setButtonIcon(saveButton, "save", "保存配置", "保存");
+    setButtonIcon(importButton, "upload", "导入配置", "导入");
+    setButtonIcon(exportButton, "download", "导出配置", "导出");
+    setButtonIcon(overlayButton, "eye", "切换已屏蔽叠加层显示", "叠加层");
+    setButtonIcon(jsonButton, "code", "打开 JSON 编辑器", "JSON");
 
     reloadButton.type = "button";
     saveButton.type = "button";
@@ -1009,7 +1017,8 @@ function renderActions(panel, context, state, status) {
         openJsonEditor(context, panel, state);
     });
 
-    const statsButton = createElement("button", "", "统计");
+    const statsButton = createElement("button", "bbvt-action-button");
+    setButtonIcon(statsButton, "chart", "打开屏蔽统计", "统计");
     statsButton.type = "button";
     statsButton.addEventListener("click", () => context.openStatsPanel?.());
 
@@ -1212,6 +1221,15 @@ function deepCloneMenu(value) {
 function injectMenuStyles() {
     const css = `
         #${menuId} {
+            --bbvt-surface: rgba(22, 25, 30, 0.94);
+            --bbvt-surface-strong: rgba(31, 36, 43, 0.9);
+            --bbvt-surface-soft: rgba(255, 255, 255, 0.06);
+            --bbvt-border: rgba(255, 255, 255, 0.1);
+            --bbvt-text: rgb(239, 244, 248);
+            --bbvt-muted: rgb(169, 179, 191);
+            --bbvt-primary: rgb(18, 183, 219);
+            --bbvt-primary-hover: rgb(33, 202, 238);
+            --bbvt-danger: rgb(232, 93, 93);
             position: fixed;
             z-index: 2147483647;
             font-family: -apple-system, BlinkMacSystemFont, "Helvetica Neue", Helvetica, Arial, "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", sans-serif;
@@ -1244,13 +1262,13 @@ function injectMenuStyles() {
         #${menuId} .bbvt-panel {
             width: 100%;
             height: 100%;
-            background: rgba(40, 40, 40, 0.85);
+            background: var(--bbvt-surface);
             backdrop-filter: blur(16px);
             -webkit-backdrop-filter: blur(16px);
-            color: rgb(250, 250, 250);
-            border-radius: 12px;
-            border: 1px solid rgba(255, 255, 255, 0.12);
-            box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 20px 25px -5px rgba(0, 0, 0, 0.4);
+            color: var(--bbvt-text);
+            border-radius: 8px;
+            border: 1px solid var(--bbvt-border);
+            box-shadow: 0 6px 12px rgba(0, 0, 0, 0.16), 0 22px 38px rgba(0, 0, 0, 0.38);
             display: flex;
             flex-direction: column;
             overflow: hidden;
@@ -1262,7 +1280,8 @@ function injectMenuStyles() {
             align-items: center;
             gap: 8px;
             padding: 14px 18px;
-            background: rgba(30, 30, 30, 0.6);
+            background: var(--bbvt-surface-strong);
+            border-bottom: 1px solid var(--bbvt-border);
             justify-content: space-between;
             cursor: move;
             user-select: none;
@@ -1276,7 +1295,7 @@ function injectMenuStyles() {
             gap: 10px;
             height: 12px;
             padding: 0 18px;
-            background: rgba(30, 30, 30, 0.4);
+            background: rgba(17, 20, 24, 0.52);
             overflow: hidden;
             transition: all 0.3s cubic-bezier(0.34, 1.56, 0.64, 1);
             position: relative;
@@ -1291,7 +1310,7 @@ function injectMenuStyles() {
             transform: translateX(-50%);
             width: 40px;
             height: 4px;
-            background: rgba(255, 255, 255, 0.2);
+            background: rgba(255, 255, 255, 0.22);
             border-radius: 2px;
             transition: opacity 0.2s ease;
         }
@@ -1299,7 +1318,7 @@ function injectMenuStyles() {
         #${menuId} .bbvt-actions:hover {
             height: 48px;
             padding: 0 18px;
-            background: rgba(30, 30, 30, 0.8);
+            background: var(--bbvt-surface-strong);
         }
 
         #${menuId} .bbvt-actions:hover::before {
@@ -1313,10 +1332,14 @@ function injectMenuStyles() {
             padding: 4px 12px;
             font-size: 12px;
             border-radius: 999px;
-            background: rgba(80, 80, 80, 0.4);
-            color: rgba(255, 255, 255, 0.7);
-            border: 1px solid rgba(255, 255, 255, 0.05);
+            background: rgba(255, 255, 255, 0.08);
+            color: rgb(216, 224, 232);
+            border: 1px solid rgba(255, 255, 255, 0.08);
             box-shadow: none;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            gap: 6px;
         }
 
         #${menuId} .bbvt-actions:hover button {
@@ -1325,10 +1348,16 @@ function injectMenuStyles() {
         }
 
         #${menuId} .bbvt-actions button:hover {
-            background: rgb(0, 174, 236);
+            background: var(--bbvt-primary);
             color: white;
             border-color: transparent;
-            box-shadow: 0 4px 12px rgba(0, 174, 236, 0.4);
+            box-shadow: 0 4px 12px rgba(18, 183, 219, 0.32);
+        }
+
+        #${menuId} .bbvt-actions .bbvt-action-primary {
+            background: rgba(18, 183, 219, 0.22);
+            color: rgb(125, 224, 242);
+            border-color: rgba(18, 183, 219, 0.22);
         }
 
         #${menuId} .bbvt-title {
@@ -1339,14 +1368,14 @@ function injectMenuStyles() {
         #${menuId} .bbvt-subtitle {
             margin-top: 4px;
             font-size: 12px;
-            color: rgb(190, 190, 190);
+            color: var(--bbvt-muted);
         }
 
         #${menuId} .bbvt-close,
         #${menuId} button {
             border: 0;
             border-radius: 8px;
-            background: rgb(0, 174, 236);
+            background: var(--bbvt-primary);
             color: white;
             padding: 7px 14px;
             cursor: pointer;
@@ -1354,9 +1383,9 @@ function injectMenuStyles() {
         }
 
         #${menuId} button:hover {
-            background: rgb(0, 190, 255);
+            background: var(--bbvt-primary-hover);
             transform: translateY(-1px);
-            box-shadow: 0 4px 12px rgba(0, 174, 236, 0.3);
+            box-shadow: 0 4px 12px rgba(18, 183, 219, 0.28);
         }
 
         #${menuId} button:active {
@@ -1367,20 +1396,31 @@ function injectMenuStyles() {
             width: 32px;
             height: 32px;
             padding: 0;
-            font-size: 20px;
+            font-size: 14px;
             line-height: 32px;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            background: rgba(255, 255, 255, 0.08);
+            color: rgb(216, 224, 232);
+        }
+
+        #${menuId} .bbvt-close:hover {
+            background: var(--bbvt-danger);
+            box-shadow: 0 4px 12px rgba(232, 93, 93, 0.28);
         }
 
         #${menuId} .bbvt-more-toggle {
             align-self: flex-start;
             margin: 14px 18px 0;
-            background: rgba(82, 82, 82, 0.8);
+            background: rgba(255, 255, 255, 0.08);
+            color: rgb(216, 224, 232);
             box-shadow: none;
             flex: 0 0 auto;
         }
 
         #${menuId} .bbvt-more-toggle:hover {
-            background: rgba(100, 100, 100, 0.9);
+            background: rgba(255, 255, 255, 0.14);
             box-shadow: 0 2px 8px rgba(0, 0, 0, 0.2);
         }
 
@@ -1402,9 +1442,9 @@ function injectMenuStyles() {
         }
 
         #${menuId} .bbvt-section {
-            border: 1px solid rgba(255, 255, 255, 0.08);
-            border-radius: 10px;
-            background: rgba(56, 56, 56, 0.4);
+            border: 1px solid var(--bbvt-border);
+            border-radius: 8px;
+            background: var(--bbvt-surface-soft);
             padding: 14px;
             transition: background 0.2s ease;
         }
@@ -1414,7 +1454,7 @@ function injectMenuStyles() {
         }
 
         #${menuId} .bbvt-section:hover {
-            background: rgba(60, 60, 60, 0.5);
+            background: rgba(255, 255, 255, 0.09);
         }
 
         #${menuId} .bbvt-section-title {
@@ -1434,9 +1474,9 @@ function injectMenuStyles() {
         }
 
         #${menuId} .bbvt-advanced-group {
-            border: 1px solid rgba(255, 255, 255, 0.08);
-            border-radius: 10px;
-            background: rgba(56, 56, 56, 0.4);
+            border: 1px solid var(--bbvt-border);
+            border-radius: 8px;
+            background: var(--bbvt-surface-soft);
             overflow: hidden;
             flex: 0 0 auto;
             min-width: 0;
@@ -1463,7 +1503,7 @@ function injectMenuStyles() {
 
         #${menuId} .bbvt-advanced-summary::before {
             content: "›";
-            color: rgb(190, 190, 190);
+            color: var(--bbvt-muted);
             font-size: 18px;
             line-height: 1;
             transition: transform 0.2s ease;
@@ -1481,7 +1521,7 @@ function injectMenuStyles() {
         }
 
         #${menuId} .bbvt-advanced-summary-meta {
-            color: rgb(170, 230, 255);
+            color: rgb(125, 224, 242);
             font-size: 12px;
             white-space: nowrap;
         }
@@ -1512,7 +1552,7 @@ function injectMenuStyles() {
         }
 
         #${menuId} .bbvt-feature-switch-meta {
-            color: rgb(180, 180, 180);
+            color: var(--bbvt-muted);
             font-size: 12px;
             white-space: nowrap;
         }
@@ -1564,31 +1604,31 @@ function injectMenuStyles() {
             align-items: center;
             gap: 6px;
             padding: 6px 10px;
-            border: 1px solid rgba(255, 255, 255, 0.12);
+            border: 1px solid var(--bbvt-border);
             border-radius: 8px;
-            background: rgba(30, 30, 30, 0.6);
+            background: rgba(12, 15, 19, 0.62);
             cursor: pointer;
             user-select: none;
             font-size: 12px;
         }
 
         #${menuId} .bbvt-choice-option:has(input:checked) {
-            border-color: rgba(0, 174, 236, 0.8);
-            background: rgba(0, 174, 236, 0.12);
-            color: rgb(0, 174, 236);
+            border-color: rgba(18, 183, 219, 0.75);
+            background: rgba(18, 183, 219, 0.14);
+            color: rgb(125, 224, 242);
         }
 
         #${menuId} .bbvt-choice-hint {
             font-size: 11px;
             line-height: 1.45;
-            color: rgb(160, 160, 160);
+            color: var(--bbvt-muted);
         }
 
         #${menuId} .bbvt-switch {
             position: relative;
             width: 36px;
             height: 20px;
-            background: rgb(80, 80, 80);
+            background: rgb(85, 96, 108);
             border-radius: 10px;
             transition: background 0.3s ease;
         }
@@ -1607,7 +1647,7 @@ function injectMenuStyles() {
         }
 
         #${menuId} .bbvt-checkbox-label input[type="checkbox"]:checked + .bbvt-switch {
-            background: rgb(0, 174, 236);
+            background: var(--bbvt-primary);
         }
 
         #${menuId} .bbvt-checkbox-label input[type="checkbox"]:checked + .bbvt-switch::after {
@@ -1616,10 +1656,10 @@ function injectMenuStyles() {
 
         #${menuId} .bbvt-text-input,
         #${menuId} .bbvt-number-input {
-            border: 1px solid rgba(255, 255, 255, 0.15);
+            border: 1px solid rgba(255, 255, 255, 0.14);
             border-radius: 8px;
-            background: rgba(0, 0, 0, 0.2);
-            color: rgb(245, 245, 245);
+            background: rgba(12, 15, 19, 0.62);
+            color: var(--bbvt-text);
             padding: 8px 10px;
             outline: none;
             box-sizing: border-box;
@@ -1628,8 +1668,8 @@ function injectMenuStyles() {
 
         #${menuId} .bbvt-text-input:focus,
         #${menuId} .bbvt-number-input:focus {
-            border-color: rgb(0, 174, 236);
-            box-shadow: 0 0 0 2px rgba(0, 174, 236, 0.2);
+            border-color: var(--bbvt-primary);
+            box-shadow: 0 0 0 2px rgba(18, 183, 219, 0.18);
         }
 
         #${menuId} .bbvt-text-input {
@@ -1657,9 +1697,9 @@ function injectMenuStyles() {
             min-width: 0;
             box-sizing: border-box;
             border-radius: 999px;
-            background: rgba(78, 78, 78, 0.8);
-            border: 1px solid rgba(255, 255, 255, 0.05);
-            color: rgb(250, 250, 250);
+            background: rgba(255, 255, 255, 0.08);
+            border: 1px solid rgba(255, 255, 255, 0.08);
+            color: var(--bbvt-text);
             padding: 5px 8px 5px 12px;
             font-size: 12px;
             transition: all 0.2s ease;
@@ -1668,7 +1708,7 @@ function injectMenuStyles() {
         #${menuId} .bbvt-chip:hover {
             transform: translateY(-1px);
             box-shadow: 0 4px 8px rgba(0,0,0,0.2);
-            background: rgba(90, 90, 90, 0.9);
+            background: rgba(255, 255, 255, 0.12);
         }
 
         #${menuId} .bbvt-chip span {
@@ -1685,11 +1725,11 @@ function injectMenuStyles() {
             border-radius: 50%;
             background: rgba(255, 255, 255, 0.1);
             box-shadow: none;
-            color: #ddd;
+            color: rgb(216, 224, 232);
         }
 
         #${menuId} .bbvt-chip-remove:hover {
-            background: rgba(255, 60, 60, 0.8);
+            background: var(--bbvt-danger);
             color: white;
             transform: scale(1.1);
         }
@@ -1707,7 +1747,7 @@ function injectMenuStyles() {
             align-items: center;
             justify-content: space-between;
             gap: 8px;
-            color: rgb(190, 190, 190);
+            color: var(--bbvt-muted);
             font-size: 12px;
             font-weight: 600;
             cursor: pointer;
@@ -1732,7 +1772,7 @@ function injectMenuStyles() {
 
         #${menuId} .bbvt-up-suggestions-meta {
             margin-left: auto;
-            color: rgb(170, 230, 255);
+            color: rgb(125, 224, 242);
             font-size: 11px;
             font-weight: 500;
         }
@@ -1749,13 +1789,13 @@ function injectMenuStyles() {
             align-items: center;
             gap: 8px;
             border-radius: 8px;
-            background: rgba(50, 50, 50, 0.6);
+            background: rgba(255, 255, 255, 0.06);
             padding: 10px 12px;
             transition: background 0.2s ease;
         }
 
         #${menuId} .bbvt-up-suggestion-row:hover {
-            background: rgba(60, 60, 60, 0.8);
+            background: rgba(255, 255, 255, 0.1);
         }
 
         #${menuId} .bbvt-up-suggestion-main {
@@ -1777,12 +1817,12 @@ function injectMenuStyles() {
 
         #${menuId} .bbvt-up-suggestion-uid,
         #${menuId} .bbvt-up-suggestion-count {
-            color: rgb(200, 200, 200);
+            color: var(--bbvt-muted);
             font-size: 12px;
         }
 
         #${menuId} .bbvt-up-suggestion-count {
-            color: rgb(170, 230, 255);
+            color: rgb(125, 224, 242);
         }
 
         #${menuId} .bbvt-up-suggestion-actions {
@@ -1799,12 +1839,12 @@ function injectMenuStyles() {
         }
 
         #${menuId} .bbvt-up-suggestion-btn-secondary {
-            background: rgba(255, 255, 255, 0.1);
-            color: rgb(235, 235, 235);
+            background: rgba(255, 255, 255, 0.08);
+            color: rgb(216, 224, 232);
         }
 
         #${menuId} .bbvt-up-suggestion-btn-secondary:hover {
-            background: rgba(255, 255, 255, 0.2);
+            background: rgba(255, 255, 255, 0.14);
             box-shadow: 0 2px 6px rgba(0,0,0,0.2);
         }
 
@@ -1831,7 +1871,7 @@ function injectMenuStyles() {
 
         #${menuId} .bbvt-empty,
         #${menuId} .bbvt-unit {
-            color: rgb(180, 180, 180);
+            color: var(--bbvt-muted);
             font-size: 12px;
         }
 
@@ -1842,14 +1882,15 @@ function injectMenuStyles() {
         #${menuId} .bbvt-status {
             min-height: 20px;
             padding: 10px 18px;
-            background: rgba(30, 30, 30, 0.6);
-            color: rgb(170, 230, 255);
+            background: var(--bbvt-surface-strong);
+            color: rgb(125, 224, 242);
             font-size: 12px;
             flex: 0 0 auto;
+            border-top: 1px solid var(--bbvt-border);
         }
 
         #${menuId} .bbvt-status.bbvt-error {
-            color: rgb(255, 150, 150);
+            color: rgb(255, 169, 169);
         }
 
         #${menuId} .bbvt-json-dialog {
@@ -1861,15 +1902,16 @@ function injectMenuStyles() {
             display: flex;
             align-items: center;
             justify-content: center;
-            border-radius: 12px;
+            border-radius: 8px;
             animation: bbvtFadeIn 0.2s ease-out forwards;
         }
 
         #${menuId} .bbvt-json-box {
             width: min(900px, calc(100vw - 72px));
             height: min(680px, calc(100vh - 72px));
-            background: rgba(40, 40, 40, 0.9);
-            border-radius: 12px;
+            background: var(--bbvt-surface);
+            border: 1px solid var(--bbvt-border);
+            border-radius: 8px;
             overflow: hidden;
             display: flex;
             flex-direction: column;
@@ -1881,8 +1923,8 @@ function injectMenuStyles() {
             resize: none;
             border: 0;
             outline: 0;
-            background: rgba(20, 20, 20, 0.8);
-            color: rgb(235, 235, 235);
+            background: rgba(12, 15, 19, 0.76);
+            color: var(--bbvt-text);
             padding: 16px;
             font-family: Consolas, "Courier New", monospace;
             font-size: 13px;
@@ -1890,7 +1932,7 @@ function injectMenuStyles() {
         }
 
         #${menuId} .bbvt-json-textarea.bbvt-json-error {
-            outline: 2px solid rgb(255, 120, 120);
+            outline: 2px solid var(--bbvt-danger);
         }
 
         #${menuId} .bbvt-json-actions {
@@ -1898,7 +1940,18 @@ function injectMenuStyles() {
             justify-content: flex-end;
             gap: 10px;
             padding: 14px;
-            background: rgba(30, 30, 30, 0.8);
+            background: var(--bbvt-surface-strong);
+            border-top: 1px solid var(--bbvt-border);
+        }
+
+        #${menuId} .bbvt-icon {
+            width: 14px;
+            height: 14px;
+            flex: 0 0 auto;
+        }
+
+        #${menuId} .bbvt-icon-label {
+            line-height: 1;
         }
 
         #${menuId} .bbvt-resizer {

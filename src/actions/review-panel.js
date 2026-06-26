@@ -11,6 +11,7 @@ import {
     partitionReviewReasons,
 } from "../settings/rule-metadata.js";
 import { isMasterSwitchEnabled } from "../utils/script-enabled.js";
+import { setButtonIcon } from "../ui/icons.js";
 
 const reviewPanelId = "bbvtReviewPanel";
 
@@ -114,7 +115,7 @@ function renderReviewPanelPopup(overlay, context, state, settings, options = {})
     const closeButton = document.createElement("button");
     closeButton.className = "qb-close";
     closeButton.type = "button";
-    closeButton.textContent = "×";
+    setButtonIcon(closeButton, "close", "关闭追溯面板");
     closeButton.addEventListener("click", () => hideHoverReviewPanel());
     header.append(titleEl, closeButton);
 
@@ -215,7 +216,7 @@ function createListRuleChipList(overlay, context, listRules, settings) {
         const removeButton = document.createElement("button");
         removeButton.type = "button";
         removeButton.className = "qb-chip-remove";
-        removeButton.textContent = "×";
+        setButtonIcon(removeButton, "close", "从配置中删除这条规则");
         removeButton.title = "从配置中删除这条规则";
         removeButton.addEventListener("click", (event) => {
             event.stopPropagation();
@@ -252,7 +253,7 @@ function createFeatureRuleRow(overlay, context, reason, settings) {
     const disableButton = document.createElement("button");
     disableButton.type = "button";
     disableButton.className = "qb-quick-btn qb-feature-disable";
-    disableButton.textContent = "关闭此规则";
+    setButtonIcon(disableButton, "shield", "关闭此规则", "关闭此规则");
     disableButton.title = "关闭对应的全局规则（影响所有视频）";
     disableButton.addEventListener("click", () => {
         disableFeatureRuleSwitch(context.settingsStore, metadata.switchKey);
@@ -298,7 +299,7 @@ function createWhitelistSection(context, state) {
     const upBtn = document.createElement("button");
     upBtn.type = "button";
     upBtn.className = "qb-quick-btn";
-    upBtn.textContent = "解封 UP";
+    setButtonIcon(upBtn, "userX", "解封 UP", "解封 UP");
     upBtn.disabled = !state.upUid;
     upBtn.addEventListener("click", () => {
         if (!state.upUid) {
@@ -318,7 +319,7 @@ function createWhitelistSection(context, state) {
     const bvBtn = document.createElement("button");
     bvBtn.type = "button";
     bvBtn.className = "qb-quick-btn";
-    bvBtn.textContent = "解封视频";
+    setButtonIcon(bvBtn, "shield", "解封视频", "解封视频");
     bvBtn.addEventListener("click", () => {
         appendWhitelistBv(context.settingsStore, state.bv);
         context.refresh({ reevaluate: true });
@@ -427,12 +428,12 @@ function injectReviewPanelStyles() {
 
         #${reviewPanelId} .qb-panel {
             width: 360px;
-            background: rgba(40, 40, 40, 0.9);
+            background: rgba(22, 25, 30, 0.94);
             backdrop-filter: blur(12px);
             -webkit-backdrop-filter: blur(12px);
-            color: rgb(250, 250, 250);
-            border-radius: 12px;
-            border: 1px solid rgba(255, 255, 255, 0.1);
+            color: rgb(239, 244, 248);
+            border-radius: 8px;
+            border: 1px solid rgba(255, 255, 255, 0.12);
             box-shadow: 0 10px 30px rgba(0, 0, 0, 0.4);
             display: flex;
             flex-direction: column;
@@ -444,21 +445,22 @@ function injectReviewPanelStyles() {
             align-items: center;
             justify-content: space-between;
             padding: 10px 14px;
-            background: rgba(30, 30, 30, 0.6);
-            border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+            background: rgba(31, 36, 43, 0.86);
+            border-bottom: 1px solid rgba(255, 255, 255, 0.08);
         }
 
         #${reviewPanelId} .qb-title { font-size: 14px; font-weight: 700; }
 
         #${reviewPanelId} .qb-close {
-            width: 24px; height: 24px; padding: 0; font-size: 16px;
+            width: 24px; height: 24px; padding: 0; font-size: 13px;
             line-height: 24px; border: 0; border-radius: 6px;
-            background: rgba(255, 255, 255, 0.1); color: rgb(220, 220, 220);
+            background: rgba(255, 255, 255, 0.08); color: rgb(222, 229, 235);
             cursor: pointer; transition: all 0.2s ease;
+            display: inline-flex; align-items: center; justify-content: center;
         }
 
         #${reviewPanelId} .qb-close:hover {
-            background: rgba(255, 60, 60, 0.8);
+            background: rgba(232, 93, 93, 0.9);
             color: white;
         }
 
@@ -482,13 +484,13 @@ function injectReviewPanelStyles() {
         #${reviewPanelId} .qb-video-title {
             font-size: 13px;
             font-weight: bold;
-            color: rgb(0, 174, 236);
+            color: rgb(91, 213, 237);
             line-height: 1.35;
         }
 
         #${reviewPanelId} .qb-video-bv {
             font-size: 11px;
-            color: rgb(160, 160, 160);
+            color: rgb(142, 154, 168);
         }
 
         #${reviewPanelId} .qb-divider {
@@ -499,7 +501,7 @@ function injectReviewPanelStyles() {
 
         #${reviewPanelId} .qb-section-title {
             font-size: 12px;
-            color: rgb(160, 160, 160);
+            color: rgb(142, 154, 168);
             margin-bottom: 6px;
         }
 
@@ -525,9 +527,9 @@ function injectReviewPanelStyles() {
             min-width: 0;
             box-sizing: border-box;
             border-radius: 999px;
-            background: rgba(78, 78, 78, 0.85);
+            background: rgba(255, 255, 255, 0.08);
             border: 1px solid rgba(255, 255, 255, 0.08);
-            color: rgb(250, 250, 250);
+            color: rgb(239, 244, 248);
             padding: 5px 8px 5px 12px;
             font-size: 12px;
             transition: all 0.2s ease;
@@ -536,7 +538,7 @@ function injectReviewPanelStyles() {
         #${reviewPanelId} .qb-chip:hover {
             transform: translateY(-1px);
             box-shadow: 0 4px 8px rgba(0, 0, 0, 0.2);
-            background: rgba(90, 90, 90, 0.95);
+            background: rgba(255, 255, 255, 0.12);
         }
 
         #${reviewPanelId} .qb-chip-label {
@@ -554,13 +556,16 @@ function injectReviewPanelStyles() {
             border-radius: 50%;
             background: rgba(255, 255, 255, 0.1);
             box-shadow: none;
-            color: #ddd;
+            color: rgb(216, 224, 232);
             cursor: pointer;
             flex-shrink: 0;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
         }
 
         #${reviewPanelId} .qb-chip-remove:hover {
-            background: rgba(255, 60, 60, 0.8);
+            background: rgba(232, 93, 93, 0.9);
             color: white;
             transform: scale(1.08);
         }
@@ -603,33 +608,34 @@ function injectReviewPanelStyles() {
         }
 
         #${reviewPanelId} .qb-feature-rule-detail {
-            color: rgb(220, 220, 220);
+            color: rgb(216, 224, 232);
             font-size: 11px;
             line-height: 1.4;
         }
 
         #${reviewPanelId} .qb-info {
-            flex: 1; min-width: 0; border: 1px solid rgba(255,255,255,0.1); border-radius: 6px;
-            background: rgba(20,20,20,0.6); color: rgb(245,245,245);
+            flex: 1; min-width: 0; border: 1px solid rgba(255,255,255,0.12); border-radius: 6px;
+            background: rgba(12,15,19,0.72); color: rgb(239,244,248);
             padding: 6px 8px; font-size: 12px; line-height: 1.35; box-sizing: border-box;
             overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
         }
 
-        #${reviewPanelId} .qb-hint { font-size: 12px; color: rgb(160,160,160); }
+        #${reviewPanelId} .qb-hint { font-size: 12px; color: rgb(142,154,168); }
 
         #${reviewPanelId} .qb-quick-btn {
             border: 0; border-radius: 6px; padding: 5px 10px; font-size: 12px;
-            background: rgba(0,174,236,0.15); color: rgb(0,174,236); cursor: pointer;
+            background: rgba(18,183,219,0.14); color: rgb(91,213,237); cursor: pointer;
             white-space: nowrap; flex-shrink: 0; transition: all 0.2s ease;
+            display: inline-flex; align-items: center; justify-content: center; gap: 5px;
         }
 
         #${reviewPanelId} .qb-feature-disable {
-            background: rgba(255,255,255,0.1);
-            color: rgb(235,235,235);
+            background: rgba(255,255,255,0.08);
+            color: rgb(216,224,232);
         }
 
         #${reviewPanelId} .qb-quick-btn:hover:not(:disabled) {
-            background: rgb(0,174,236);
+            background: rgb(18,183,219);
             color: white;
         }
 
@@ -639,9 +645,15 @@ function injectReviewPanelStyles() {
         }
 
         #${reviewPanelId} .qb-quick-btn:disabled {
-            background: rgba(60,60,60,0.4);
-            color: rgb(120,120,120);
+            background: rgba(62,70,80,0.45);
+            color: rgb(116,126,138);
             cursor: default;
+        }
+
+        #${reviewPanelId} .bbvt-icon {
+            width: 13px;
+            height: 13px;
+            flex: 0 0 auto;
         }
     `;
 

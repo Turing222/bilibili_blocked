@@ -6,6 +6,7 @@ import {
     renderMultiSelectChips,
 } from "../utils/multi-select-chips.js";
 import { isMasterSwitchEnabled } from "../utils/script-enabled.js";
+import { setButtonIcon } from "../ui/icons.js";
 
 const quickBlockId = "bbvtQuickBlock";
 
@@ -111,6 +112,7 @@ function buildQuickBlockPopupShell(overlay, context, state, videoBv, videoElemen
 
     const header = createQuickBlockEl("div", "qb-header");
     const closeButton = createQuickBlockEl("button", "qb-close", "×");
+    setButtonIcon(closeButton, "close", "关闭快速屏蔽");
     closeButton.addEventListener("click", () => overlay.remove());
     header.append(createQuickBlockEl("span", "qb-title", "快速屏蔽"), closeButton);
 
@@ -128,6 +130,7 @@ function buildQuickBlockPopupShell(overlay, context, state, videoBv, videoElemen
         upField.appendChild(createQuickBlockEl("div", "qb-subtext", state.upDisplayText));
     }
     const upQuickBtn = createQuickBlockEl("button", "qb-quick-btn", "屏蔽");
+    setButtonIcon(upQuickBtn, "userX", "屏蔽 UP", "屏蔽");
     upQuickBtn.disabled = !state.upValue.trim();
     upQuickBtn.addEventListener("click", () => {
         if (!state.upValue.trim()) return;
@@ -149,6 +152,7 @@ function buildQuickBlockPopupShell(overlay, context, state, videoBv, videoElemen
 
     const candidates = createQuickBlockEl("div", "qb-candidates");
     const titleQuickBtn = createQuickBlockEl("button", "qb-quick-btn", "屏蔽");
+    setButtonIcon(titleQuickBtn, "shield", "屏蔽标题关键词", "屏蔽");
     const updateTitleQuickBtn = () => {
         titleQuickBtn.disabled = !hasQuickBlockSelection(state.selectedTitleChips, state.titleValue);
     };
@@ -174,6 +178,7 @@ function buildQuickBlockPopupShell(overlay, context, state, videoBv, videoElemen
     partitionRow.appendChild(createQuickBlockEl("div", "qb-row-label", "分区"));
     const partitionInfo = createQuickBlockEl("div", "qb-info qb-info-muted", "分区加载中...");
     const partitionQuickBtn = createQuickBlockEl("button", "qb-quick-btn", "屏蔽");
+    setButtonIcon(partitionQuickBtn, "shield", "屏蔽分区", "屏蔽");
     partitionQuickBtn.addEventListener("click", () => {
         const value = getPartitionBlockValue(state);
         if (!value) return;
@@ -188,6 +193,7 @@ function buildQuickBlockPopupShell(overlay, context, state, videoBv, videoElemen
     tagsRow.appendChild(createQuickBlockEl("div", "qb-row-label", "标签"));
     const chipsContainer = createQuickBlockEl("div", "qb-chips");
     const tagsQuickBtn = createQuickBlockEl("button", "qb-quick-btn", "屏蔽");
+    setButtonIcon(tagsQuickBtn, "tag", "屏蔽标签", "屏蔽");
     tagsQuickBtn.addEventListener("click", () => {
         const values = [...state.selectedTags];
         if (values.length === 0) return;
@@ -349,12 +355,12 @@ function injectQuickBlockStyles() {
 
         #${quickBlockId} .qb-panel {
             width: 380px;
-            background: rgba(40, 40, 40, 0.9);
+            background: rgba(22, 25, 30, 0.94);
             backdrop-filter: blur(12px);
             -webkit-backdrop-filter: blur(12px);
-            color: rgb(250, 250, 250);
-            border-radius: 12px;
-            border: 1px solid rgba(255, 255, 255, 0.1);
+            color: rgb(239, 244, 248);
+            border-radius: 8px;
+            border: 1px solid rgba(255, 255, 255, 0.12);
             box-shadow: 0 10px 30px rgba(0, 0, 0, 0.4);
             display: flex;
             flex-direction: column;
@@ -366,21 +372,22 @@ function injectQuickBlockStyles() {
             align-items: center;
             justify-content: space-between;
             padding: 10px 14px;
-            background: rgba(30, 30, 30, 0.6);
-            border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+            background: rgba(31, 36, 43, 0.86);
+            border-bottom: 1px solid rgba(255, 255, 255, 0.08);
         }
 
         #${quickBlockId} .qb-title { font-size: 14px; font-weight: 700; }
 
         #${quickBlockId} .qb-close {
-            width: 24px; height: 24px; padding: 0; font-size: 16px;
+            width: 24px; height: 24px; padding: 0; font-size: 13px;
             line-height: 24px; border: 0; border-radius: 6px;
-            background: rgba(255, 255, 255, 0.1); color: rgb(220, 220, 220);
+            background: rgba(255, 255, 255, 0.08); color: rgb(222, 229, 235);
             cursor: pointer; transition: all 0.2s ease;
+            display: inline-flex; align-items: center; justify-content: center;
         }
 
         #${quickBlockId} .qb-close:hover {
-            background: rgba(255, 60, 60, 0.8);
+            background: rgba(232, 93, 93, 0.9);
             color: white;
         }
 
@@ -392,7 +399,7 @@ function injectQuickBlockStyles() {
 
         #${quickBlockId} .qb-row-label {
             width: 36px; flex: 0 0 36px; padding-top: 7px;
-            color: rgb(190, 190, 190); font-size: 12px; font-weight: 700;
+            color: rgb(170, 181, 193); font-size: 12px; font-weight: 700;
         }
 
         #${quickBlockId} .qb-field {
@@ -400,25 +407,25 @@ function injectQuickBlockStyles() {
         }
 
         #${quickBlockId} .qb-subtext {
-            color: rgb(160,160,160); font-size: 11px; line-height: 1.3;
+            color: rgb(142, 154, 168); font-size: 11px; line-height: 1.3;
             overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
         }
 
         #${quickBlockId} .qb-input {
-            flex: 1; width: 100%; border: 1px solid rgba(255,255,255,0.1); border-radius: 6px;
-            background: rgba(20,20,20,0.6); color: rgb(245,245,245);
+            flex: 1; width: 100%; border: 1px solid rgba(255,255,255,0.12); border-radius: 6px;
+            background: rgba(12, 15, 19, 0.72); color: rgb(239,244,248);
             padding: 6px 8px; font-size: 12px; outline: none; box-sizing: border-box;
             transition: border-color 0.2s;
         }
-        #${quickBlockId} .qb-input:focus { border-color: rgb(0, 174, 236); }
+        #${quickBlockId} .qb-input:focus { border-color: rgb(18, 183, 219); }
 
         #${quickBlockId} .qb-info {
-            flex: 1; min-width: 0; border: 1px solid rgba(255,255,255,0.1); border-radius: 6px;
-            background: rgba(20,20,20,0.6); color: rgb(245,245,245);
+            flex: 1; min-width: 0; border: 1px solid rgba(255,255,255,0.12); border-radius: 6px;
+            background: rgba(12, 15, 19, 0.72); color: rgb(239,244,248);
             padding: 6px 8px; font-size: 12px; line-height: 1.35; box-sizing: border-box;
             overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
         }
-        #${quickBlockId} .qb-info-muted { color: rgb(160,160,160); }
+        #${quickBlockId} .qb-info-muted { color: rgb(142,154,168); }
 
         #${quickBlockId} .qb-candidates {
             display: flex; flex-wrap: wrap; gap: 6px;
@@ -428,34 +435,41 @@ function injectQuickBlockStyles() {
 
         #${quickBlockId} .qb-chip {
             display: inline-flex; align-items: center; border-radius: 99px;
-            background: rgba(80,80,80,0.4); color: rgb(180,180,180); border: 1px solid rgba(255,255,255,0.05);
+            background: rgba(255,255,255,0.07); color: rgb(196,205,214); border: 1px solid rgba(255,255,255,0.08);
             padding: 3px 10px; font-size: 11px; cursor: pointer; user-select: none; transition: all 0.2s ease;
             max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
             font-family: inherit;
         }
 
         #${quickBlockId} .qb-chip:hover {
-            background: rgba(0, 174, 236, 0.8); color: white;
+            background: rgba(18, 183, 219, 0.82); color: white;
         }
 
         #${quickBlockId} .qb-chip-selected {
-            background: rgba(0, 174, 236, 0.85); color: white;
-            border-color: rgba(0, 174, 236, 0.4);
+            background: rgba(18, 183, 219, 0.9); color: white;
+            border-color: rgba(18, 183, 219, 0.45);
         }
 
         #${quickBlockId} .qb-chip-selected:hover {
-            background: rgb(0, 190, 255); color: white;
+            background: rgb(33, 202, 238); color: white;
         }
 
-        #${quickBlockId} .qb-hint { font-size: 12px; color: rgb(160,160,160); padding-top: 4px; }
+        #${quickBlockId} .qb-hint { font-size: 12px; color: rgb(142,154,168); padding-top: 4px; }
 
         #${quickBlockId} .qb-quick-btn {
             border: 0; border-radius: 6px; padding: 5px 10px; font-size: 12px;
-            background: rgba(0,174,236,0.15); color: rgb(0,174,236); cursor: pointer;
+            background: rgba(18,183,219,0.14); color: rgb(91,213,237); cursor: pointer;
             white-space: nowrap; flex-shrink: 0; transition: all 0.2s ease;
+            display: inline-flex; align-items: center; justify-content: center; gap: 5px;
         }
-        #${quickBlockId} .qb-quick-btn:hover:not(:disabled) { background: rgb(0,174,236); color: white; }
-        #${quickBlockId} .qb-quick-btn:disabled { background: rgba(60,60,60,0.4); color: rgb(120,120,120); cursor: default; }
+        #${quickBlockId} .qb-quick-btn:hover:not(:disabled) { background: rgb(18,183,219); color: white; }
+        #${quickBlockId} .qb-quick-btn:disabled { background: rgba(62,70,80,0.45); color: rgb(116,126,138); cursor: default; }
+
+        #${quickBlockId} .bbvt-icon {
+            width: 13px;
+            height: 13px;
+            flex: 0 0 auto;
+        }
     `;
 
     const style = document.createElement("style");
