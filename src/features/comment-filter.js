@@ -10,8 +10,8 @@
 // - 不处理视频卡片屏蔽。
 
 import {
-    findBlockedCommentTextMatch,
-    findBlockedCommentUserMatch,
+    findBlockedCommentTextMatches,
+    findBlockedCommentUserMatches,
 } from "../utils/comment-filter.js";
 import { mountCommentQuickBlock } from "../actions/comment-quick-block.js";
 import { removeConfigArrayItem } from "../settings/mutations.js";
@@ -70,8 +70,12 @@ export const commentFilterFeature = {
             if (blockResult.blocked) {
                 blockedTargets.add(blockTarget);
             }
-            if (changedToBlocked && blockResult.item) {
-                statsStore?.increment(`${blockResult.type}: ${blockResult.item}`);
+            if (changedToBlocked) {
+                getCommentBlockReasons(blockResult).forEach((reason) => {
+                    if (reason.item) {
+                        statsStore?.increment(`${reason.type}: ${reason.item}`);
+                    }
+                });
             }
         });
     },
@@ -163,31 +167,32 @@ function isInsideBlockedCommentTarget(commentElement, blockedTargets) {
 }
 
 function getCommentBlockResult(settings, commentInfo) {
-    const matchedUser = settings.blockedCommentUser_Switch
-        ? findBlockedCommentUserMatch(commentInfo, settings.blockedCommentUser_Array)
-        : "";
+    const blockedReasons = [];
+    const matchedUsers = settings.blockedCommentUser_Switch
+        ? findBlockedCommentUserMatches(commentInfo, settings.blockedCommentUser_Array)
+        : [];
 
-    if (matchedUser) {
-        return createCommentBlockResult({
+    matchedUsers.forEach((matchedUser) => {
+        blockedReasons.push(createCommentBlockReason({
             type: blockedCommentUserType,
             item: matchedUser,
             reasonItem: formatCommentUserReason(commentInfo, matchedUser),
             configKey: "blockedCommentUser_Array",
             configValue: matchedUser,
             matchedValue: formatCommentUserReason(commentInfo, matchedUser),
-        });
-    }
+        }));
+    });
 
-    const matchedText = settings.blockedCommentText_Switch
-        ? findBlockedCommentTextMatch(
+    const matchedTexts = settings.blockedCommentText_Switch
+        ? findBlockedCommentTextMatches(
             commentInfo.text,
             settings.blockedCommentText_Array,
             settings.blockedCommentText_UseRegular
         )
-        : "";
+        : [];
 
-    if (matchedText) {
-        return createCommentBlockResult({
+    matchedTexts.forEach((matchedText) => {
+        blockedReasons.push(createCommentBlockReason({
             type: blockedCommentTextType,
             item: matchedText,
             reasonItem: matchedText,
@@ -195,19 +200,19 @@ function getCommentBlockResult(settings, commentInfo) {
             regularKey: "blockedCommentText_UseRegular",
             configValue: matchedText,
             matchedValue: commentInfo.text,
-        });
-    }
+        }));
+    });
 
     if (settings.blockedCommentImage_Switch && commentInfo.hasImage) {
-        return createCommentBlockResult({
+        blockedReasons.push(createCommentBlockReason({
             type: blockedCommentImageType,
             item: "带图评论",
             reasonItem: "",
             matchedValue: "带图评论",
-        });
+        }));
     }
 
-    return { blocked: false };
+    return createCommentBlockResult(blockedReasons);
 }
 
 function getCommentKey(commentInfo) {
@@ -222,9 +227,9 @@ function getCommentKey(commentInfo) {
     return JSON.stringify([userId, userName, text.slice(0, 240)]);
 }
 
-function createCommentBlockResult({ type, item, reasonItem, configKey = "", regularKey = "", configValue = "", matchedValue = "" }) {
+function createCommentBlockReason({ type, item, reasonItem, configKey = "", regularKey = "", configValue = "", matchedValue = "" }) {
     const reason = reasonItem ? `${type}: ${reasonItem}` : type;
-    const blockReason = {
+    return {
         id: [type, configKey, configValue, matchedValue, reason].join("\u0001"),
         type,
         item,
@@ -235,14 +240,22 @@ function createCommentBlockResult({ type, item, reasonItem, configKey = "", regu
         matchedValue,
         canRemoveConfig: Boolean(configKey && configValue),
     };
+}
+
+function createCommentBlockResult(blockedReasons) {
+    if (!blockedReasons.length) {
+        return { blocked: false };
+    }
+
+    const blockReason = blockedReasons[0];
 
     return {
         blocked: true,
-        type,
-        item,
-        reason,
+        type: blockReason.type,
+        item: blockReason.item,
+        reason: blockReason.displayText,
         blockReason,
-        blockedReasons: [blockReason],
+        blockedReasons,
     };
 }
 

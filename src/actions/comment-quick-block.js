@@ -9,8 +9,10 @@ import {
     renderMultiSelectChips,
 } from "../utils/multi-select-chips.js";
 import { isMasterSwitchEnabled } from "../utils/script-enabled.js";
+import { setButtonIcon } from "../ui/icons.js";
 
 const triggerId = "bbvtCommentQuickBlockTrigger";
+const targetMarkerId = "bbvtCommentQuickBlockTargetMarker";
 const popupId = "bbvtCommentQuickBlockPopup";
 const styleId = "bbvtCommentQuickBlockStyles";
 const maxQuickBlockTextLength = 160;
@@ -18,6 +20,9 @@ const maxQuickBlockTextLength = 160;
 const commentQuickBlockStates = new WeakMap();
 let hideTriggerTimer = null;
 let popupCloseHandler = null;
+let activeTargetCommentElement = null;
+let targetMarkerListenersBound = false;
+let targetPositionFrame = null;
 
 export function dismissCommentQuickBlockUi() {
     closeCommentQuickBlockPopup();
@@ -74,7 +79,11 @@ function showCommentQuickBlockTrigger(commentElement) {
         openCommentQuickBlockPopup(state.context, commentElement, state.commentInfo, event.clientX, event.clientY);
     };
 
-    positionTrigger(trigger, commentElement);
+    if (!positionTrigger(trigger, commentElement)) {
+        clearCommentQuickBlockTarget();
+        return;
+    }
+    markCommentQuickBlockTarget(commentElement);
     trigger.hidden = false;
 }
 
@@ -92,8 +101,8 @@ function ensureCommentQuickBlockTrigger() {
     trigger = document.createElement("button");
     trigger.id = triggerId;
     trigger.type = "button";
-    trigger.textContent = "屏蔽";
     trigger.title = "快速屏蔽这条评论";
+    setButtonIcon(trigger, "shield", "快速屏蔽这条评论", "屏蔽");
     trigger.hidden = true;
     trigger.addEventListener("mouseenter", clearHideTriggerTimer);
     trigger.addEventListener("mouseleave", scheduleHideTrigger);
@@ -107,21 +116,32 @@ function ensureCommentQuickBlockTrigger() {
 
 function positionTrigger(trigger, commentElement) {
     const rect = commentElement.getBoundingClientRect();
-    if (rect.width <= 0 || rect.height <= 0 || rect.bottom < 0 || rect.top > window.innerHeight) {
+    const viewportWidth = window.innerWidth || document.documentElement?.clientWidth || 1280;
+    const viewportHeight = window.innerHeight || document.documentElement?.clientHeight || 800;
+    if (
+        commentElement.isConnected === false ||
+        rect.width <= 0 ||
+        rect.height <= 0 ||
+        rect.bottom < 0 ||
+        rect.top > viewportHeight
+    ) {
         trigger.hidden = true;
-        return;
+        return false;
     }
 
     trigger.style.visibility = "hidden";
     trigger.hidden = false;
 
     const margin = 8;
-    const left = clamp(rect.right - trigger.offsetWidth - margin, margin, window.innerWidth - trigger.offsetWidth - margin);
-    const top = clamp(rect.top + 6, margin, window.innerHeight - trigger.offsetHeight - margin);
+    const triggerWidth = trigger.offsetWidth || 48;
+    const triggerHeight = trigger.offsetHeight || 26;
+    const left = clamp(rect.right - triggerWidth - margin, margin, viewportWidth - triggerWidth - margin) + getPageScrollX();
+    const top = clamp(rect.top + 6, margin, viewportHeight - triggerHeight - margin) + getPageScrollY();
 
     trigger.style.left = `${left}px`;
     trigger.style.top = `${top}px`;
     trigger.style.visibility = "";
+    return true;
 }
 
 function scheduleHideTrigger() {
@@ -145,6 +165,7 @@ function hideCommentQuickBlockTrigger() {
     if (trigger) {
         trigger.hidden = true;
     }
+    clearCommentQuickBlockTarget();
 }
 
 function openCommentQuickBlockPopup(context, commentElement, commentInfo, x, y) {
@@ -155,6 +176,7 @@ function openCommentQuickBlockPopup(context, commentElement, commentInfo, x, y) 
 
     closeCommentQuickBlockPopup();
     clearHideTriggerTimer();
+    markCommentQuickBlockTarget(commentElement);
 
     const initialText = getInitialQuickBlockText(commentElement, commentInfo.text);
     const userRule = getCommentUserRule(commentInfo);
@@ -177,7 +199,7 @@ function openCommentQuickBlockPopup(context, commentElement, commentInfo, x, y) 
     const closeButton = document.createElement("button");
     closeButton.type = "button";
     closeButton.className = "bbvt-comment-qb-icon-btn";
-    closeButton.textContent = "×";
+    setButtonIcon(closeButton, "close", "关闭快速屏蔽评论");
     closeButton.addEventListener("click", closeCommentQuickBlockPopup);
     header.append(title, closeButton);
 
@@ -196,7 +218,7 @@ function openCommentQuickBlockPopup(context, commentElement, commentInfo, x, y) 
     const userButton = document.createElement("button");
     userButton.type = "button";
     userButton.className = "bbvt-comment-qb-secondary";
-    userButton.textContent = "屏蔽用户";
+    setButtonIcon(userButton, "userX", "屏蔽评论用户", "屏蔽用户");
     userButton.hidden = !userRule;
     userButton.title = formatCommentUserLabel(commentInfo);
     userButton.addEventListener("click", () => {
@@ -212,7 +234,7 @@ function openCommentQuickBlockPopup(context, commentElement, commentInfo, x, y) 
     const confirmButton = document.createElement("button");
     confirmButton.type = "button";
     confirmButton.className = "bbvt-comment-qb-primary";
-    confirmButton.textContent = "屏蔽内容";
+    setButtonIcon(confirmButton, "shield", "屏蔽评论内容", "屏蔽内容");
     const cancelButton = document.createElement("button");
     cancelButton.type = "button";
     cancelButton.className = "bbvt-comment-qb-secondary";
@@ -279,6 +301,148 @@ function closeCommentQuickBlockPopup() {
         document.removeEventListener("mousedown", popupCloseHandler);
         popupCloseHandler = null;
     }
+    clearCommentQuickBlockTarget();
+}
+
+function markCommentQuickBlockTarget(commentElement) {
+    if (activeTargetCommentElement === commentElement) {
+        positionCommentQuickBlockTargetMarker(commentElement);
+        return;
+    }
+
+    clearCommentQuickBlockTarget();
+    activeTargetCommentElement = commentElement;
+    if (activeTargetCommentElement?.dataset) {
+        activeTargetCommentElement.dataset.bbvtCommentQuickBlockTarget = "true";
+    }
+    positionCommentQuickBlockTargetMarker(commentElement);
+    bindCommentQuickBlockTargetMarkerListeners();
+}
+
+function clearCommentQuickBlockTarget() {
+    if (activeTargetCommentElement?.dataset) {
+        delete activeTargetCommentElement.dataset.bbvtCommentQuickBlockTarget;
+    }
+    activeTargetCommentElement = null;
+    document.getElementById(targetMarkerId)?.remove();
+    cancelCommentQuickBlockTargetPositionUpdate();
+    unbindCommentQuickBlockTargetMarkerListeners();
+}
+
+function positionCommentQuickBlockTargetMarker(commentElement) {
+    const rect = commentElement?.getBoundingClientRect?.();
+    const viewportHeight = window.innerHeight || document.documentElement?.clientHeight || 800;
+    if (
+        commentElement?.isConnected === false ||
+        !rect ||
+        rect.width <= 0 ||
+        rect.height <= 0 ||
+        rect.bottom < 0 ||
+        rect.top > viewportHeight
+    ) {
+        document.getElementById(targetMarkerId)?.remove();
+        return;
+    }
+
+    const marker = ensureCommentQuickBlockTargetMarker();
+    const margin = 6;
+    const left = Math.max(margin, rect.left - 4) + getPageScrollX();
+    const top = Math.max(margin, rect.top - 2) + getPageScrollY();
+    const width = Math.max(44, rect.width + 8);
+    const height = Math.max(28, rect.height + 4);
+
+    marker.style.left = `${left}px`;
+    marker.style.top = `${top}px`;
+    marker.style.width = `${width}px`;
+    marker.style.height = `${height}px`;
+}
+
+function ensureCommentQuickBlockTargetMarker() {
+    let marker = document.getElementById(targetMarkerId);
+    if (marker) {
+        return marker;
+    }
+
+    marker = document.createElement("div");
+    marker.id = targetMarkerId;
+    marker.className = "bbvt-comment-qb-target-marker";
+
+    const line = document.createElement("div");
+    line.className = "bbvt-comment-qb-target-line";
+    marker.appendChild(line);
+
+    document.body.appendChild(marker);
+    return marker;
+}
+
+function updateCommentQuickBlockTargetMarker() {
+    scheduleCommentQuickBlockTargetPositionUpdate();
+}
+
+function scheduleCommentQuickBlockTargetPositionUpdate() {
+    if (targetPositionFrame !== null) {
+        return;
+    }
+
+    const update = () => {
+        targetPositionFrame = null;
+        positionActiveCommentQuickBlockUi();
+    };
+    if (typeof window.requestAnimationFrame === "function") {
+        targetPositionFrame = window.requestAnimationFrame(update);
+        return;
+    }
+
+    targetPositionFrame = 0;
+    update();
+}
+
+function cancelCommentQuickBlockTargetPositionUpdate() {
+    if (targetPositionFrame === null) {
+        return;
+    }
+
+    if (targetPositionFrame !== 0 && typeof window.cancelAnimationFrame === "function") {
+        window.cancelAnimationFrame(targetPositionFrame);
+    }
+    targetPositionFrame = null;
+}
+
+function positionActiveCommentQuickBlockUi() {
+    if (!activeTargetCommentElement || activeTargetCommentElement.isConnected === false) {
+        const trigger = document.getElementById(triggerId);
+        if (trigger) {
+            trigger.hidden = true;
+        }
+        clearCommentQuickBlockTarget();
+        return;
+    }
+
+    const trigger = document.getElementById(triggerId);
+    if (trigger && !document.getElementById(popupId)) {
+        positionTrigger(trigger, activeTargetCommentElement);
+    }
+    positionCommentQuickBlockTargetMarker(activeTargetCommentElement);
+}
+
+function bindCommentQuickBlockTargetMarkerListeners() {
+    if (targetMarkerListenersBound) {
+        return;
+    }
+
+    window.addEventListener?.("scroll", updateCommentQuickBlockTargetMarker, true);
+    window.addEventListener?.("resize", updateCommentQuickBlockTargetMarker);
+    targetMarkerListenersBound = true;
+}
+
+function unbindCommentQuickBlockTargetMarkerListeners() {
+    if (!targetMarkerListenersBound) {
+        return;
+    }
+
+    window.removeEventListener?.("scroll", updateCommentQuickBlockTargetMarker, true);
+    window.removeEventListener?.("resize", updateCommentQuickBlockTargetMarker);
+    targetMarkerListenersBound = false;
 }
 
 function getInitialQuickBlockText(commentElement, commentText) {
@@ -382,32 +546,63 @@ function clamp(value, min, max) {
     return Math.max(min, Math.min(value, max));
 }
 
+function getPageScrollX() {
+    return window.scrollX || window.pageXOffset || document.documentElement?.scrollLeft || document.body?.scrollLeft || 0;
+}
+
+function getPageScrollY() {
+    return window.scrollY || window.pageYOffset || document.documentElement?.scrollTop || document.body?.scrollTop || 0;
+}
+
 function canUseDom() {
     return typeof document === "object" && typeof window === "object" && document.body;
 }
 
 function injectCommentQuickBlockStyles() {
-    if (document.getElementById(styleId)) {
-        return;
-    }
-
     const css = `
         #${triggerId} {
-            position: fixed;
+            position: absolute;
             z-index: 2147483646;
             border: 0;
             border-radius: 6px;
-            background: rgba(0, 174, 236, 0.92);
+            background: rgba(18, 183, 219, 0.94);
             color: white;
             padding: 4px 9px;
             font-size: 12px;
             line-height: 1.4;
             cursor: pointer;
             box-shadow: 0 4px 14px rgba(0, 0, 0, 0.16);
+            display: inline-flex;
+            align-items: center;
+            gap: 5px;
         }
 
         #${triggerId}:hover {
-            background: rgb(0, 190, 255);
+            background: rgb(33, 202, 238);
+        }
+
+        #${targetMarkerId} {
+            position: absolute;
+            z-index: 2147483645;
+            pointer-events: none;
+            box-sizing: border-box;
+            border-radius: 8px;
+            border-left: 3px solid rgba(18, 183, 219, 0.95);
+            background: rgba(18, 183, 219, 0.08);
+            box-shadow:
+                inset -42px 0 0 rgba(18, 183, 219, 0.08),
+                0 0 0 1px rgba(18, 183, 219, 0.2),
+                0 8px 24px rgba(0, 0, 0, 0.12);
+        }
+
+        #${targetMarkerId} .bbvt-comment-qb-target-line {
+            position: absolute;
+            top: 12px;
+            right: 10px;
+            width: 34px;
+            height: 2px;
+            border-radius: 999px;
+            background: rgba(18, 183, 219, 0.95);
         }
 
         #${popupId} {
@@ -421,10 +616,10 @@ function injectCommentQuickBlockStyles() {
             box-sizing: border-box;
             width: 100%;
             overflow: hidden;
-            border: 1px solid rgba(0, 0, 0, 0.1);
+            border: 1px solid rgba(255, 255, 255, 0.12);
             border-radius: 8px;
-            background: rgba(255, 255, 255, 0.98);
-            color: rgb(32, 32, 32);
+            background: rgba(22, 25, 30, 0.96);
+            color: rgb(239, 244, 248);
             box-shadow: 0 12px 34px rgba(0, 0, 0, 0.18);
         }
 
@@ -433,7 +628,7 @@ function injectCommentQuickBlockStyles() {
             align-items: center;
             justify-content: space-between;
             padding: 10px 12px;
-            border-bottom: 1px solid rgba(0, 0, 0, 0.08);
+            border-bottom: 1px solid rgba(255, 255, 255, 0.08);
             font-size: 13px;
             font-weight: 700;
         }
@@ -445,14 +640,17 @@ function injectCommentQuickBlockStyles() {
             border: 0;
             border-radius: 6px;
             background: transparent;
-            color: rgb(90, 90, 90);
+            color: rgb(205, 214, 224);
             cursor: pointer;
-            font-size: 18px;
+            font-size: 13px;
             line-height: 24px;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
         }
 
         #${popupId} .bbvt-comment-qb-icon-btn:hover {
-            background: rgba(0, 0, 0, 0.07);
+            background: rgba(255, 255, 255, 0.08);
         }
 
         #${popupId} .bbvt-comment-qb-candidates {
@@ -464,16 +662,16 @@ function injectCommentQuickBlockStyles() {
 
         #${popupId} .bbvt-comment-qb-hint {
             font-size: 12px;
-            color: rgb(130, 130, 130);
+            color: rgb(142, 154, 168);
         }
 
         #${popupId} .bbvt-comment-qb-chip {
             display: inline-flex;
             align-items: center;
-            border: 1px solid rgba(0, 0, 0, 0.1);
+            border: 1px solid rgba(255, 255, 255, 0.09);
             border-radius: 99px;
-            background: rgba(0, 0, 0, 0.05);
-            color: rgb(70, 70, 70);
+            background: rgba(255, 255, 255, 0.07);
+            color: rgb(196, 205, 214);
             padding: 3px 10px;
             font-size: 11px;
             cursor: pointer;
@@ -485,19 +683,19 @@ function injectCommentQuickBlockStyles() {
         }
 
         #${popupId} .bbvt-comment-qb-chip:hover {
-            background: rgba(0, 174, 236, 0.12);
-            border-color: rgba(0, 174, 236, 0.35);
-            color: rgb(0, 120, 180);
+            background: rgba(18, 183, 219, 0.16);
+            border-color: rgba(18, 183, 219, 0.38);
+            color: rgb(91, 213, 237);
         }
 
         #${popupId} .bbvt-comment-qb-chip-selected {
-            background: rgba(0, 174, 236, 0.88);
-            border-color: rgba(0, 174, 236, 0.88);
+            background: rgba(18, 183, 219, 0.9);
+            border-color: rgba(18, 183, 219, 0.9);
             color: white;
         }
 
         #${popupId} .bbvt-comment-qb-chip-selected:hover {
-            background: rgb(0, 190, 255);
+            background: rgb(33, 202, 238);
             color: white;
         }
 
@@ -509,19 +707,19 @@ function injectCommentQuickBlockStyles() {
             resize: vertical;
             min-height: 68px;
             max-height: 150px;
-            border: 1px solid rgba(0, 0, 0, 0.12);
+            border: 1px solid rgba(255, 255, 255, 0.12);
             border-radius: 6px;
             padding: 8px;
-            color: rgb(32, 32, 32);
-            background: rgb(255, 255, 255);
+            color: rgb(239, 244, 248);
+            background: rgba(12, 15, 19, 0.72);
             font-size: 12px;
             line-height: 1.45;
             outline: none;
         }
 
         #${popupId} .bbvt-comment-qb-input:focus {
-            border-color: rgb(0, 174, 236);
-            box-shadow: 0 0 0 2px rgba(0, 174, 236, 0.14);
+            border-color: rgb(18, 183, 219);
+            box-shadow: 0 0 0 2px rgba(18, 183, 219, 0.16);
         }
 
         #${popupId} .bbvt-comment-qb-actions {
@@ -539,31 +737,51 @@ function injectCommentQuickBlockStyles() {
             padding: 6px 12px;
             font-size: 12px;
             cursor: pointer;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            gap: 5px;
         }
 
         #${popupId} .bbvt-comment-qb-primary {
-            background: rgb(0, 174, 236);
+            background: rgb(18, 183, 219);
             color: white;
         }
 
         #${popupId} .bbvt-comment-qb-primary:hover:not(:disabled) {
-            background: rgb(0, 190, 255);
+            background: rgb(33, 202, 238);
         }
 
         #${popupId} .bbvt-comment-qb-primary:disabled {
-            background: rgb(180, 180, 180);
+            background: rgb(70, 78, 88);
+            color: rgb(132, 143, 155);
             cursor: default;
         }
 
         #${popupId} .bbvt-comment-qb-secondary {
-            background: rgba(0, 0, 0, 0.07);
-            color: rgb(70, 70, 70);
+            background: rgba(255, 255, 255, 0.08);
+            color: rgb(215, 222, 229);
         }
 
         #${popupId} .bbvt-comment-qb-secondary:hover {
-            background: rgba(0, 0, 0, 0.12);
+            background: rgba(255, 255, 255, 0.14);
+        }
+
+        #${triggerId} .bbvt-icon,
+        #${popupId} .bbvt-icon {
+            width: 13px;
+            height: 13px;
+            flex: 0 0 auto;
         }
     `;
+
+    const existingStyle = document.getElementById(styleId);
+    if (existingStyle) {
+        if (existingStyle.textContent !== css) {
+            existingStyle.textContent = css;
+        }
+        return;
+    }
 
     const style = document.createElement("style");
     style.id = styleId;

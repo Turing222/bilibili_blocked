@@ -29,8 +29,8 @@ describe("comment renderer block modes", () => {
         const overlay = parent.querySelector(".bbvt-comment-filter-overlay");
         const text = overlay.querySelector(".bbvt-comment-filter-overlay-text");
         assert.equal(comment.style.visibility, "hidden");
-        assert.equal(parent.querySelector("button"), null);
-        assert.match(text.textContent, /test/);
+        assert.equal(text.textContent, "已屏蔽评论");
+        assert.ok(parent.querySelector(".bbvt-comment-filter-details-toggle"));
 
         overlay.onmousemove({ target: overlay });
         assert.equal(comment.style.visibility, "");
@@ -126,7 +126,7 @@ describe("comment renderer block modes", () => {
         assert.equal(parent.querySelectorAll(".bbvt-comment-filter-overlay").length, 0);
     });
 
-    it("renders removable reason chips that remain available while peeking", () => {
+    it("renders removable reason rows in an anchored details panel", () => {
         setupDom();
 
         const renderer = createBlockedRenderer();
@@ -153,12 +153,22 @@ describe("comment renderer block modes", () => {
         });
 
         const overlay = parent.querySelector(".bbvt-comment-filter-overlay");
-        const chip = overlay.querySelector(".bbvt-comment-filter-reason-chip");
-        const button = overlay.querySelector("button");
-        assert.ok(chip);
-        assert.ok(button);
+        const summary = overlay.querySelector(".bbvt-comment-filter-overlay-text");
+        const toggle = overlay.querySelector(".bbvt-comment-filter-details-toggle");
+        assert.equal(summary.textContent, "已屏蔽评论 · 1 条规则");
+        assert.equal(overlay.querySelector(".bbvt-comment-filter-reason-row"), null);
+        assert.ok(toggle);
 
-        overlay.onmousemove({ target: chip });
+        toggle.click();
+        const panel = overlay.querySelector(".bbvt-comment-filter-details-panel");
+        const row = overlay.querySelector(".bbvt-comment-filter-reason-row");
+        const button = overlay.querySelector(".bbvt-comment-filter-reason-remove");
+        assert.ok(panel);
+        assert.ok(row);
+        assert.ok(button);
+        assert.equal(panel.style.width, "360px");
+
+        overlay.onmousemove({ target: panel });
         assert.equal(comment.style.visibility, "hidden");
         assert.equal(overlay.dataset.bbvtCommentFilterPeeking, undefined);
 
@@ -201,10 +211,11 @@ describe("comment renderer block modes", () => {
 
         renderer.renderCommentBlockedState(comment, blockResult, options);
         const overlay = parent.querySelector(".bbvt-comment-filter-overlay");
-        const button = overlay.querySelector("button");
+        overlay.querySelector(".bbvt-comment-filter-details-toggle").click();
+        const button = overlay.querySelector(".bbvt-comment-filter-reason-remove");
 
         renderer.renderCommentBlockedState(comment, blockResult, options);
-        assert.equal(overlay.querySelector("button"), button);
+        assert.equal(overlay.querySelector(".bbvt-comment-filter-reason-remove"), button);
 
         button.click();
         assert.equal(removed, true);
@@ -234,7 +245,7 @@ describe("comment renderer block modes", () => {
         assert.match(oldStyle.textContent, /bbvt-comment-filter-overlay-veil/);
     });
 
-    it("keeps the reason control bar visually independent from the peeking veil", () => {
+    it("keeps the compact bar and details panel visually independent from the peeking veil", () => {
         setupDom();
 
         const renderer = createBlockedRenderer();
@@ -261,6 +272,10 @@ describe("comment renderer block modes", () => {
         assert.ok(styleText.includes("position: absolute;"));
         assert.ok(styleText.includes("right: 8px;"));
         assert.ok(styleText.includes("background: rgba(25, 29, 34, 0.9);"));
+        assert.ok(styleText.includes(".bbvt-comment-filter-details-panel"));
+        assert.ok(styleText.includes("position: absolute;"));
+        assert.ok(styleText.includes("overflow: visible;"));
+        assert.ok(styleText.includes("overflow-y: auto;"));
     });
 
     it("hides a blocked comment in hide mode without rendering an overlay", () => {

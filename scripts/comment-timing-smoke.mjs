@@ -333,12 +333,16 @@ async function collectCommentTimingState(page, keyword) {
 }
 
 function deriveKeyword(commentText) {
-  const cleaned = cleanText(commentText, 80);
-  const compact = cleaned.replace(/\s+/g, "");
-  if (compact.length <= 8) {
-    return compact;
-  }
-  return compact.slice(0, 8);
+    const cleaned = cleanText(commentText, 80);
+    const contiguousText = cleaned
+        .split(/\s+/)
+        .find((part) => part.length >= 4);
+
+    const candidate = contiguousText || cleaned.replace(/\s+/g, "");
+    if (candidate.length <= 8) {
+        return candidate;
+    }
+    return candidate.slice(0, 8);
 }
 
 function createTimingSettings(keyword) {
@@ -471,7 +475,8 @@ async function moveAcrossPlaceholder(page, keyword) {
         veilOpacity: veil ? getComputedStyle(veil).opacity : "",
         overlayPeeking: placeholder?.dataset.bbvtCommentFilterPeeking === "true",
         commentPeeking: target?.dataset.bbvtCommentFilterPeeking === "true",
-        reasonChipFound: Boolean(placeholder?.querySelector?.(".bbvt-comment-filter-reason-chip")),
+        detailsToggleFound: Boolean(placeholder?.querySelector?.(".bbvt-comment-filter-details-toggle")),
+        detailsPanelFound: Boolean(placeholder?.querySelector?.(".bbvt-comment-filter-details-panel")),
         removeButtonFound: Boolean(placeholder?.querySelector?.(".bbvt-comment-filter-reason-remove")),
       };
     }
@@ -496,8 +501,7 @@ async function moveAcrossPlaceholder(page, keyword) {
       (
         afterBody.targetVisibility === "hidden" ||
         afterBody.veilOpacity === "1" ||
-        !afterBody.reasonChipFound ||
-        !afterBody.removeButtonFound
+        !afterBody.detailsToggleFound
       )
     ) {
       await new Promise((resolve) => setTimeout(resolve, 100));
@@ -587,8 +591,22 @@ async function clickReasonRemove(page, keyword) {
 
     const placeholders = queryAllDeep(document, ".bbvt-comment-filter-overlay");
     const placeholder = placeholders.find((item) => item.textContent.includes(targetKeyword)) || placeholders[0] || null;
-    const button = placeholder?.querySelector?.(".bbvt-comment-filter-reason-remove") || null;
     const target = placeholder?.nextElementSibling ?? null;
+    const moveEvent = () => new MouseEvent("mousemove", {
+      bubbles: true,
+      cancelable: true,
+      view: window,
+    });
+    const toggle = placeholder?.querySelector?.(".bbvt-comment-filter-details-toggle") || null;
+    toggle?.dispatchEvent(moveEvent());
+    const afterToggleMove = {
+      targetVisibility: target ? getComputedStyle(target).visibility : "",
+      overlayPeeking: placeholder?.dataset.bbvtCommentFilterPeeking === "true",
+      commentPeeking: target?.dataset.bbvtCommentFilterPeeking === "true",
+    };
+    toggle?.click();
+    const panel = placeholder?.querySelector?.(".bbvt-comment-filter-details-panel") || null;
+    const button = panel?.querySelector?.(".bbvt-comment-filter-reason-remove") || null;
     button?.dispatchEvent(new MouseEvent("mousemove", {
       bubbles: true,
       cancelable: true,
@@ -602,8 +620,180 @@ async function clickReasonRemove(page, keyword) {
     button?.click();
     return {
       found: Boolean(placeholder),
+      toggleFound: Boolean(toggle),
+      panelFound: Boolean(panel),
       buttonFound: Boolean(button),
+      afterToggleMove,
       afterControlMove,
+    };
+  }, keyword);
+}
+
+async function checkCommentQuickBlockMarker(page, keyword) {
+  return page.evaluate(async (targetKeyword) => {
+    function queryAllDeep(root, selector, visited = new WeakSet()) {
+      const results = [];
+      if (!root?.querySelectorAll) {
+        return results;
+      }
+      if (root.matches?.(selector)) {
+        results.push(root);
+      }
+      if (root.shadowRoot && !visited.has(root.shadowRoot)) {
+        visited.add(root.shadowRoot);
+        results.push(...queryAllDeep(root.shadowRoot, selector, visited));
+      }
+      results.push(...root.querySelectorAll(selector));
+      root.querySelectorAll("*").forEach((element) => {
+        if (element.shadowRoot && !visited.has(element.shadowRoot)) {
+          visited.add(element.shadowRoot);
+          results.push(...queryAllDeep(element.shadowRoot, selector, visited));
+        }
+      });
+      return [...new Set(results)];
+    }
+
+    function readDataMessage(node, visited = new WeakSet()) {
+      if (!node || (node.nodeType !== 1 && node.nodeType !== 9 && node.nodeType !== 11)) {
+        return "";
+      }
+      const data = node.__data ?? node.data;
+      const message = data?.content?.message ?? data?.reply?.content?.message ?? data?.message;
+      if (message) {
+        return String(message || "").replace(/\s+/g, " ").trim();
+      }
+      if (node.nodeType === 1 && node.shadowRoot && !visited.has(node.shadowRoot)) {
+        visited.add(node.shadowRoot);
+        const shadowMessage = readDataMessage(node.shadowRoot, visited);
+        if (shadowMessage) {
+          return shadowMessage;
+        }
+      }
+      for (const child of node.childNodes || []) {
+        const childMessage = readDataMessage(child, visited);
+        if (childMessage) {
+          return childMessage;
+        }
+      }
+      return "";
+    }
+
+    function readTextDeep(node, visited = new WeakSet()) {
+      if (!node) {
+        return "";
+      }
+      if (node.nodeType === 3) {
+        return node.nodeValue || "";
+      }
+      if (node.nodeType !== 1 && node.nodeType !== 9 && node.nodeType !== 11) {
+        return "";
+      }
+      const parts = [];
+      if (node.nodeType === 1 && node.shadowRoot && !visited.has(node.shadowRoot)) {
+        visited.add(node.shadowRoot);
+        parts.push(readTextDeep(node.shadowRoot, visited));
+      }
+      for (const child of node.childNodes || []) {
+        parts.push(readTextDeep(child, visited));
+      }
+      return String(parts.join(" ")).replace(/\s+/g, " ").trim();
+    }
+
+    const commentSelector = [
+      "div.reply-item",
+      "div.root-reply-container",
+      "div.sub-reply-item",
+      "bili-comment-renderer",
+      "bili-comment-reply-renderer",
+    ].join(",");
+    const comments = queryAllDeep(document, commentSelector)
+      .map((element) => ({
+        element,
+        text: readDataMessage(element) || readTextDeep(element),
+      }))
+      .filter((item) => item.text && item.element.dataset.bbvtCommentBlocked !== "true");
+    const target = comments.find((item) => item.text.includes(targetKeyword)) || comments[0] || null;
+    if (!target) {
+      return { targetFound: false };
+    }
+
+    function readAnchorState() {
+      const trigger = document.getElementById("bbvtCommentQuickBlockTrigger");
+      const marker = document.getElementById("bbvtCommentQuickBlockTargetMarker");
+      const targetRect = target.element.getBoundingClientRect?.();
+      const triggerRect = trigger?.getBoundingClientRect?.();
+      const markerRect = marker?.getBoundingClientRect?.();
+      return {
+        triggerFound: Boolean(trigger && !trigger.hidden),
+        markerFound: Boolean(marker),
+        markerWidth: markerRect?.width ?? 0,
+        markerHeight: markerRect?.height ?? 0,
+        targetMarked: target.element.dataset.bbvtCommentQuickBlockTarget === "true",
+        markerOffsetTop: markerRect && targetRect ? Math.round(markerRect.top - targetRect.top) : null,
+        markerOffsetLeft: markerRect && targetRect ? Math.round(markerRect.left - targetRect.left) : null,
+        triggerOffsetTop: triggerRect && targetRect ? Math.round(triggerRect.top - targetRect.top) : null,
+        triggerOffsetRight: triggerRect && targetRect ? Math.round(targetRect.right - triggerRect.right) : null,
+      };
+    }
+
+    function offsetsStable(before, after) {
+      const keys = ["markerOffsetTop", "markerOffsetLeft", "triggerOffsetTop", "triggerOffsetRight"];
+      return keys.every((key) => (
+        Number.isFinite(before?.[key]) &&
+        Number.isFinite(after?.[key]) &&
+        Math.abs(before[key] - after[key]) <= 2
+      ));
+    }
+
+    target.element.dispatchEvent(new MouseEvent("mouseenter", {
+      bubbles: false,
+      cancelable: true,
+      view: window,
+    }));
+    await new Promise((resolve) => setTimeout(resolve, 120));
+
+    const beforeScroll = readAnchorState();
+    const startScrollY = window.scrollY;
+    const targetRectBeforeScroll = target.element.getBoundingClientRect?.();
+    const safeDownDelta = Math.min(40, Math.max(0, Math.floor((targetRectBeforeScroll?.bottom ?? 0) - 12)));
+    const safeUpDelta = Math.min(
+      40,
+      Math.max(0, Math.floor((window.innerHeight || 800) - (targetRectBeforeScroll?.top ?? 0) - 12)),
+      Math.max(0, Math.floor(startScrollY))
+    );
+    const scrollDelta = safeDownDelta >= 12 ? safeDownDelta : -safeUpDelta;
+    if (Math.abs(scrollDelta) > 0) {
+      window.scrollBy(0, scrollDelta);
+    }
+    await new Promise((resolve) => setTimeout(resolve, 160));
+    const afterScroll = readAnchorState();
+    window.scrollTo(window.scrollX, startScrollY);
+    await new Promise((resolve) => setTimeout(resolve, 120));
+
+    const afterEnter = {
+      ...readAnchorState(),
+      beforeScroll,
+      afterScroll,
+      scrollDelta,
+      anchorStableAfterScroll: offsetsStable(beforeScroll, afterScroll),
+      targetText: target.text.slice(0, 160),
+    };
+
+    target.element.dispatchEvent(new MouseEvent("mouseleave", {
+      bubbles: false,
+      cancelable: true,
+      view: window,
+    }));
+    await new Promise((resolve) => setTimeout(resolve, 260));
+
+    return {
+      targetFound: true,
+      afterEnter,
+      afterLeave: {
+        markerFound: Boolean(document.getElementById("bbvtCommentQuickBlockTargetMarker")),
+        triggerHidden: document.getElementById("bbvtCommentQuickBlockTrigger")?.hidden ?? true,
+        targetMarked: target.element.dataset.bbvtCommentQuickBlockTarget === "true",
+      },
     };
   }, keyword);
 }
@@ -676,8 +866,7 @@ async function runTiming(runDir, recorder) {
       (state) =>
         state.target?.blocked === true &&
         state.target?.computedVisibility === "hidden" &&
-        state.target?.placeholderFound === true &&
-        state.target?.placeholderText.includes(keyword),
+        state.target?.placeholderFound === true,
       recorder
     );
 
@@ -688,8 +877,7 @@ async function runTiming(runDir, recorder) {
       peeked.afterBody.veilOpacity === "1" ||
       !peeked.afterBody.overlayPeeking ||
       !peeked.afterBody.commentPeeking ||
-      !peeked.afterBody.reasonChipFound ||
-      !peeked.afterBody.removeButtonFound
+      !peeked.afterBody.detailsToggleFound
     ) {
       throw new Error("Comment overlay hover peek did not keep the expected hidden/visible states.");
     }
@@ -725,6 +913,8 @@ async function runTiming(runDir, recorder) {
     recorder.mark("ui.rule.remove", removedRule);
     if (
       !removedRule.found ||
+      !removedRule.toggleFound ||
+      !removedRule.panelFound ||
       !removedRule.buttonFound ||
       removedRule.afterControlMove?.targetVisibility !== "hidden" ||
       removedRule.afterControlMove?.overlayPeeking ||
@@ -745,6 +935,23 @@ async function runTiming(runDir, recorder) {
         !state.storage?.blockedCommentText_Array?.includes(keyword),
       recorder
     );
+
+    const quickBlockMarker = await checkCommentQuickBlockMarker(page, keyword);
+    recorder.mark("ui.quick-block.marker", quickBlockMarker);
+    if (
+      !quickBlockMarker.targetFound ||
+      !quickBlockMarker.afterEnter?.triggerFound ||
+      !quickBlockMarker.afterEnter?.markerFound ||
+      quickBlockMarker.afterEnter?.markerWidth <= 0 ||
+      quickBlockMarker.afterEnter?.markerHeight <= 0 ||
+      !quickBlockMarker.afterEnter?.targetMarked ||
+      !quickBlockMarker.afterEnter?.anchorStableAfterScroll ||
+      quickBlockMarker.afterLeave?.markerFound ||
+      !quickBlockMarker.afterLeave?.triggerHidden ||
+      quickBlockMarker.afterLeave?.targetMarked
+    ) {
+      throw new Error("Comment quick-block target marker did not appear and clear as expected.");
+    }
 
     const toggledOff = await toggleFloatingEntry(page);
     recorder.mark("ui.click", { action: "toggle-script-off", clicked: toggledOff });

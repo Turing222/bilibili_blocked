@@ -234,31 +234,21 @@ function ensureCommentOverlay(commentElement, { reason, commentKey = "", reasonI
         !overlay.querySelector?.(".bbvt-comment-filter-overlay-veil") ||
         !overlay.querySelector?.(".bbvt-comment-filter-overlay-body")
     ) {
+        const detailsOpen = overlay.dataset.bbvtCommentDetailsOpen === "true";
         overlay.replaceChildren();
         const veil = document.createElement("div");
         veil.className = "bbvt-comment-filter-overlay-veil";
 
-        const body = document.createElement("div");
-        body.className = "bbvt-comment-filter-overlay-body";
-
-        const label = document.createElement("span");
-        label.className = "bbvt-comment-filter-overlay-text";
-        label.textContent = "已屏蔽评论";
-
-        if (normalizedReasonItems.length === 0) {
-            label.textContent = `已屏蔽评论：${reason}`;
-            body.append(label);
-        } else {
-            body.append(label);
-            normalizedReasonItems.forEach((item) => {
-                body.appendChild(createCommentReasonChip(item));
-            });
-        }
+        const body = createCommentOverlayBody(overlay, reason, normalizedReasonItems);
 
         overlay.append(veil, body);
+        if (detailsOpen) {
+            showCommentDetailsPanel(overlay, reason, normalizedReasonItems);
+        }
         overlay.dataset.bbvtCommentOverlaySignature = overlaySignature;
     }
 
+    overlay.style.zIndex = overlay.dataset.bbvtCommentDetailsOpen === "true" ? "30" : "20";
     syncCommentPeekDataset(commentElement, overlay);
 
     overlay.onmousemove = (event) => {
@@ -281,6 +271,194 @@ function normalizeCommentReasonItems(reasonItems) {
         .filter((item) => item.label);
 }
 
+function createCommentOverlayBody(overlay, reason, reasonItems) {
+    const body = document.createElement("div");
+    body.className = "bbvt-comment-filter-overlay-body";
+    body.title = createCommentOverlaySummaryTitle(reason, reasonItems);
+
+    const label = document.createElement("span");
+    label.className = "bbvt-comment-filter-overlay-text";
+    label.textContent = createCommentOverlaySummaryText(reasonItems);
+    body.appendChild(label);
+
+    const detailsButton = document.createElement("button");
+    detailsButton.type = "button";
+    detailsButton.className = "bbvt-comment-filter-details-toggle";
+    detailsButton.textContent = overlay.dataset.bbvtCommentDetailsOpen === "true" ? "收起" : "展开";
+    detailsButton.title = "查看并删除命中的评论规则";
+    stopCommentOverlayControlEvents(detailsButton);
+    detailsButton.addEventListener("click", (event) => {
+        event.preventDefault();
+        event.stopPropagation();
+        toggleCommentDetailsPanel(overlay, reason, reasonItems);
+    });
+    body.appendChild(detailsButton);
+
+    return body;
+}
+
+function createCommentOverlaySummaryText(reasonItems) {
+    if (reasonItems.length > 0) {
+        return `已屏蔽评论 · ${reasonItems.length} 条规则`;
+    }
+
+    return "已屏蔽评论";
+}
+
+function createCommentOverlaySummaryTitle(reason, reasonItems) {
+    if (reasonItems.length > 0) {
+        return reasonItems.map((item) => item.title || item.label).filter(Boolean).join("\n");
+    }
+
+    return String(reason || "已屏蔽评论");
+}
+
+function toggleCommentDetailsPanel(overlay, reason, reasonItems) {
+    if (overlay.dataset.bbvtCommentDetailsOpen === "true") {
+        hideCommentDetailsPanel(overlay);
+        return;
+    }
+
+    showCommentDetailsPanel(overlay, reason, reasonItems);
+}
+
+function showCommentDetailsPanel(overlay, reason, reasonItems) {
+    hideCommentDetailsPanel(overlay);
+    overlay.dataset.bbvtCommentDetailsOpen = "true";
+    overlay.style.zIndex = "30";
+
+    const panel = createCommentDetailsPanel(overlay, reason, reasonItems);
+    overlay.appendChild(panel);
+    positionCommentDetailsPanel(overlay, panel);
+    syncCommentDetailsToggle(overlay);
+}
+
+function hideCommentDetailsPanel(overlay) {
+    overlay.querySelector?.(".bbvt-comment-filter-details-panel")?.remove();
+    delete overlay.dataset.bbvtCommentDetailsOpen;
+    overlay.style.zIndex = "20";
+    syncCommentDetailsToggle(overlay);
+}
+
+function syncCommentDetailsToggle(overlay) {
+    const toggle = overlay.querySelector?.(".bbvt-comment-filter-details-toggle");
+    if (toggle) {
+        toggle.textContent = overlay.dataset.bbvtCommentDetailsOpen === "true" ? "收起" : "展开";
+    }
+}
+
+function createCommentDetailsPanel(overlay, reason, reasonItems) {
+    const panel = document.createElement("div");
+    panel.className = "bbvt-comment-filter-details-panel";
+    stopCommentOverlayControlEvents(panel);
+
+    const header = document.createElement("div");
+    header.className = "bbvt-comment-filter-details-header";
+
+    const title = document.createElement("span");
+    title.className = "bbvt-comment-filter-details-title";
+    title.textContent = "屏蔽原因";
+
+    const closeButton = document.createElement("button");
+    closeButton.type = "button";
+    closeButton.className = "bbvt-comment-filter-details-close";
+    closeButton.textContent = "×";
+    closeButton.title = "收起";
+    stopCommentOverlayControlEvents(closeButton);
+    closeButton.addEventListener("click", (event) => {
+        event.preventDefault();
+        event.stopPropagation();
+        hideCommentDetailsPanel(overlay);
+    });
+
+    header.append(title, closeButton);
+
+    const list = document.createElement("div");
+    list.className = "bbvt-comment-filter-details-list";
+    const items = reasonItems.length > 0
+        ? reasonItems
+        : [{ label: String(reason || "已屏蔽评论"), title: String(reason || ""), canRemove: false }];
+    items.forEach((item) => {
+        list.appendChild(createCommentReasonRow(item));
+    });
+
+    panel.append(header, list);
+    return panel;
+}
+
+function createCommentReasonRow(item) {
+    const row = document.createElement("div");
+    row.className = "bbvt-comment-filter-reason-row";
+
+    const label = document.createElement("span");
+    label.className = "bbvt-comment-filter-reason-row-label";
+    label.textContent = item.label;
+    label.title = item.title || item.label;
+    row.appendChild(label);
+
+    if (item.canRemove && typeof item.onRemove === "function") {
+        const removeButton = document.createElement("button");
+        removeButton.type = "button";
+        removeButton.className = "bbvt-comment-filter-reason-remove";
+        removeButton.textContent = "删除";
+        removeButton.title = item.removeTitle || "从配置中删除这条规则";
+        stopCommentOverlayControlEvents(removeButton);
+        removeButton.addEventListener("click", (event) => {
+            event.preventDefault();
+            event.stopPropagation();
+            item.onRemove(item);
+        });
+        row.appendChild(removeButton);
+    }
+
+    return row;
+}
+
+function positionCommentDetailsPanel(overlay, panel) {
+    const viewportWidth = window.innerWidth || 1280;
+    const viewportHeight = window.innerHeight || 800;
+    const margin = 12;
+    const gap = 6;
+    const overlayRect = overlay.getBoundingClientRect?.() || {
+        top: 0,
+        left: 0,
+        width: overlay.offsetWidth || viewportWidth,
+        height: overlay.offsetHeight || 44,
+        right: viewportWidth,
+        bottom: overlay.offsetHeight || 44,
+    };
+    const overlayWidth = overlayRect.width || overlay.offsetWidth || viewportWidth;
+    const overlayHeight = overlayRect.height || overlay.offsetHeight || 44;
+    const body = overlay.querySelector?.(".bbvt-comment-filter-overlay-body") || null;
+    const bodyRect = body?.getBoundingClientRect?.() || null;
+    const bodyLeft = bodyRect ? bodyRect.left - overlayRect.left : Math.max(8, overlayWidth - 280);
+    const bodyTop = bodyRect ? bodyRect.top - overlayRect.top : 8;
+    const bodyRight = bodyRect ? bodyRect.right - overlayRect.left : overlayWidth - 8;
+    const bodyBottom = bodyRect ? bodyRect.bottom - overlayRect.top : 38;
+    const panelWidth = Math.min(360, viewportWidth - margin * 2);
+    const viewportMinLeft = margin - (overlayRect.left || 0);
+    const viewportMaxLeft = viewportWidth - margin - (overlayRect.left || 0) - panelWidth;
+    const preferredLeft = Math.min(bodyLeft, bodyRight - panelWidth);
+    const left = clampNumber(preferredLeft, viewportMinLeft, viewportMaxLeft);
+    const spaceBelow = viewportHeight - ((overlayRect.top || 0) + bodyBottom) - margin - gap;
+    const spaceAbove = (overlayRect.top || 0) + bodyTop - margin - gap;
+    const placeBelow = spaceBelow >= 160 || spaceBelow >= spaceAbove;
+    const availableHeight = Math.max(120, placeBelow ? spaceBelow : spaceAbove);
+    const maxHeight = Math.min(340, availableHeight);
+
+    panel.style.left = `${left}px`;
+    panel.style.right = "";
+    panel.style.width = `${panelWidth}px`;
+    panel.style.maxHeight = `${maxHeight}px`;
+    if (placeBelow) {
+        panel.style.top = `${bodyBottom + gap}px`;
+        panel.style.bottom = "";
+    } else {
+        panel.style.top = "";
+        panel.style.bottom = `${Math.max(0, overlayHeight - bodyTop + gap)}px`;
+    }
+}
+
 function createCommentOverlaySignature(reason, reasonItems) {
     return JSON.stringify({
         reason: String(reason || ""),
@@ -294,37 +472,8 @@ function createCommentOverlaySignature(reason, reasonItems) {
     });
 }
 
-function createCommentReasonChip(item) {
-    const chip = document.createElement("span");
-    chip.className = "bbvt-comment-filter-reason-chip";
-    chip.title = item.title || item.label;
-    stopCommentOverlayControlEvents(chip);
-
-    const label = document.createElement("span");
-    label.className = "bbvt-comment-filter-reason-label";
-    label.textContent = item.label;
-    chip.appendChild(label);
-
-    if (item.canRemove && typeof item.onRemove === "function") {
-        const removeButton = document.createElement("button");
-        removeButton.type = "button";
-        removeButton.className = "bbvt-comment-filter-reason-remove";
-        removeButton.textContent = "×";
-        removeButton.title = item.removeTitle || "从配置中删除这条规则";
-        stopCommentOverlayControlEvents(removeButton);
-        removeButton.addEventListener("click", (event) => {
-            event.preventDefault();
-            event.stopPropagation();
-            item.onRemove(item);
-        });
-        chip.appendChild(removeButton);
-    }
-
-    return chip;
-}
-
 function stopCommentOverlayControlEvents(element) {
-    ["mousemove", "mousedown", "pointerdown"].forEach((eventName) => {
+    ["mousemove", "mousedown", "pointerdown", "click"].forEach((eventName) => {
         element.addEventListener(eventName, (event) => {
             event.stopPropagation();
         });
@@ -334,13 +483,24 @@ function stopCommentOverlayControlEvents(element) {
 function isCommentOverlayControlTarget(target, overlay) {
     let current = target;
     while (current && current !== overlay) {
-        if (current.classList?.contains?.("bbvt-comment-filter-overlay-body")) {
+        if (
+            current.classList?.contains?.("bbvt-comment-filter-overlay-body") ||
+            current.classList?.contains?.("bbvt-comment-filter-details-panel")
+        ) {
             return true;
         }
         current = current.parentNode;
     }
 
     return false;
+}
+
+function clampNumber(value, min, max) {
+    if (max < min) {
+        return min;
+    }
+
+    return Math.max(min, Math.min(value, max));
 }
 
 function ensureCommentOverlayParent(parent) {
@@ -532,14 +692,14 @@ function injectCommentFilterStyles(commentElement) {
             color: rgb(245, 245, 245);
             font-size: 12px;
             line-height: 1.45;
-            overflow: hidden;
+            overflow: visible;
         }
 
         .bbvt-comment-filter-overlay-veil {
             position: absolute;
             inset: 0;
             box-sizing: border-box;
-            border: 1px solid rgba(0, 174, 236, 0.28);
+            border: 1px solid rgba(18, 183, 219, 0.3);
             border-radius: 8px;
             background: rgba(28, 32, 36, 0.88);
             box-shadow: 0 8px 24px rgba(0, 0, 0, 0.16);
@@ -559,15 +719,14 @@ function injectCommentFilterStyles(commentElement) {
             top: 8px;
             right: 8px;
             z-index: 1;
-            display: flex;
+            display: inline-flex;
             align-items: center;
             justify-content: flex-end;
-            flex-wrap: wrap;
             gap: 6px;
-            max-width: calc(100% - 16px);
+            max-width: min(280px, calc(100% - 16px));
             box-sizing: border-box;
             padding: 5px 7px;
-            border: 1px solid rgba(0, 174, 236, 0.32);
+            border: 1px solid rgba(18, 183, 219, 0.32);
             border-radius: 7px;
             background: rgba(25, 29, 34, 0.9);
             box-shadow: 0 6px 18px rgba(0, 0, 0, 0.18);
@@ -577,51 +736,127 @@ function injectCommentFilterStyles(commentElement) {
 
         .bbvt-comment-filter-overlay-text {
             min-width: 0;
+            flex: 1 1 auto;
             overflow: hidden;
             text-overflow: ellipsis;
             white-space: nowrap;
             color: rgba(245, 245, 245, 0.92);
         }
 
-        .bbvt-comment-filter-reason-chip {
-            display: inline-flex;
-            align-items: center;
-            gap: 6px;
-            min-width: 0;
-            max-width: min(520px, 100%);
-            padding: 3px 6px 3px 8px;
-            border: 1px solid rgba(0, 174, 236, 0.36);
-            border-radius: 999px;
-            background: rgba(0, 174, 236, 0.18);
+        .bbvt-comment-filter-details-toggle {
+            flex: 0 0 auto;
+            border: 0;
+            border-radius: 5px;
+            padding: 2px 6px;
+            background: rgba(18, 183, 219, 0.24);
             color: rgb(255, 255, 255);
+            font-size: 12px;
+            line-height: 1.4;
+            cursor: pointer;
         }
 
-        .bbvt-comment-filter-reason-label {
+        .bbvt-comment-filter-details-toggle:hover {
+            background: rgba(18, 183, 219, 0.72);
+        }
+
+        .bbvt-comment-filter-details-panel {
+            position: absolute;
+            z-index: 3;
+            box-sizing: border-box;
+            max-width: calc(100vw - 24px);
+            max-height: min(340px, calc(100vh - 24px));
+            display: flex;
+            flex-direction: column;
+            overflow: hidden;
+            border: 1px solid rgba(18, 183, 219, 0.36);
+            border-radius: 8px;
+            background: rgba(25, 29, 34, 0.96);
+            color: rgb(245, 245, 245);
+            box-shadow: 0 14px 36px rgba(0, 0, 0, 0.28);
+            backdrop-filter: blur(8px);
+            -webkit-backdrop-filter: blur(8px);
+        }
+
+        .bbvt-comment-filter-details-header {
+            flex: 0 0 auto;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 10px;
+            padding: 9px 10px;
+            border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+        }
+
+        .bbvt-comment-filter-details-title {
             min-width: 0;
             overflow: hidden;
             text-overflow: ellipsis;
             white-space: nowrap;
+            font-weight: 700;
+        }
+
+        .bbvt-comment-filter-details-close {
+            width: 24px;
+            height: 24px;
+            flex: 0 0 auto;
+            padding: 0;
+            border: 0;
+            border-radius: 6px;
+            background: rgba(255, 255, 255, 0.1);
+            color: rgb(245, 245, 245);
+            font-size: 17px;
+            line-height: 24px;
+            cursor: pointer;
+        }
+
+        .bbvt-comment-filter-details-close:hover {
+            background: rgba(18, 183, 219, 0.72);
+        }
+
+        .bbvt-comment-filter-details-list {
+            min-height: 0;
+            overflow-y: auto;
+            padding: 8px;
+            display: flex;
+            flex-direction: column;
+            gap: 7px;
+        }
+
+        .bbvt-comment-filter-reason-row {
+            display: grid;
+            grid-template-columns: minmax(0, 1fr) auto;
+            align-items: start;
+            gap: 8px;
+            padding: 7px 8px;
+            border: 1px solid rgba(255, 255, 255, 0.08);
+            border-radius: 7px;
+            background: rgba(255, 255, 255, 0.06);
+        }
+
+        .bbvt-comment-filter-reason-row-label {
+            min-width: 0;
+            color: rgba(245, 245, 245, 0.95);
+            line-height: 1.45;
+            overflow-wrap: anywhere;
         }
 
         .bbvt-comment-filter-reason-remove {
-            width: 16px;
-            height: 16px;
             flex: 0 0 auto;
             display: inline-flex;
             align-items: center;
             justify-content: center;
-            padding: 0;
+            padding: 4px 8px;
             border: 0;
-            border-radius: 50%;
-            background: rgba(255, 255, 255, 0.22);
+            border-radius: 6px;
+            background: rgba(255, 255, 255, 0.13);
             color: rgb(255, 255, 255);
-            font-size: 13px;
+            font-size: 12px;
             line-height: 1;
             cursor: pointer;
         }
 
         .bbvt-comment-filter-reason-remove:hover {
-            background: rgba(0, 174, 236, 0.82);
+            background: rgba(18, 183, 219, 0.82);
         }
     `;
 

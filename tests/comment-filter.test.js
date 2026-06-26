@@ -4,12 +4,17 @@ import { afterEach, describe, it, mock } from "node:test";
 import { commentFilterFeature } from "../src/features/comment-filter.js";
 import {
     findBlockedCommentTextMatch,
+    findBlockedCommentTextMatches,
     findBlockedCommentUserMatch,
 } from "../src/utils/comment-filter.js";
 
 describe("findBlockedCommentTextMatch", () => {
     it("matches plain keywords by containment", () => {
         assert.equal(findBlockedCommentTextMatch("这是一条广告评论", ["广告"], false), "广告");
+    });
+
+    it("returns all matched plain keywords in config order", () => {
+        assert.deepEqual(findBlockedCommentTextMatches("广告灌水评论", ["广告", "灌水", "正常"], false), ["广告", "灌水"]);
     });
 
     it("matches regular expressions safely", () => {
@@ -141,6 +146,46 @@ describe("commentFilterFeature", () => {
 
         assert.deepEqual(savedSettings.blockedCommentText_Array, ["灌水"]);
         assert.deepEqual(refreshCalls, [{ reevaluate: true }]);
+    });
+
+    it("passes all matched comment text reasons to the renderer and stats", () => {
+        const commentElement = { id: "comment-1" };
+        const rendered = [];
+        const stats = [];
+
+        commentFilterFeature.run({
+            settings: {
+                blockedCommentText_Switch: true,
+                blockedCommentText_UseRegular: false,
+                blockedCommentText_Array: ["广告", "灌水", "正常"],
+                hideBlockedWordsInMenu_Switch: false,
+            },
+            domAdapter: {
+                getCommentElements: () => [commentElement],
+                readCommentInfo: () => ({ text: "广告灌水评论", userId: "", userName: "", hasImage: false }),
+            },
+            renderer: {
+                renderCommentBlockedState(element, blockResult, options) {
+                    rendered.push({ element, blockResult, options });
+                    return blockResult.blocked;
+                },
+            },
+            statsStore: {
+                increment(ruleKey) {
+                    stats.push(ruleKey);
+                },
+            },
+        });
+
+        assert.deepEqual(
+            rendered[0].blockResult.blockedReasons.map((reason) => reason.configValue),
+            ["广告", "灌水"]
+        );
+        assert.deepEqual(
+            rendered[0].options.reasonItems.map((item) => item.label),
+            ["按评论内容屏蔽 · 广告", "按评论内容屏蔽 · 灌水"]
+        );
+        assert.deepEqual(stats, ["按评论内容屏蔽: 广告", "按评论内容屏蔽: 灌水"]);
     });
 
     it("uses the thread target for a blocked root comment and skips its replies", () => {

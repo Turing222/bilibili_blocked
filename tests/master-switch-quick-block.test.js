@@ -13,6 +13,7 @@ function createSettingsStore(scriptEnabled = true) {
 
 function setupDom() {
     const nodes = new Map();
+    const windowListeners = new Map();
 
     class DomElement {
         constructor(tagName) {
@@ -28,6 +29,7 @@ function setupDom() {
             this.parentNode = null;
             this.children = [];
             this.listeners = new Map();
+            this.rect = { left: 10, top: 20, width: 300, height: 40, bottom: 60, right: 310 };
         }
 
         appendChild(node) {
@@ -62,7 +64,7 @@ function setupDom() {
         }
 
         getBoundingClientRect() {
-            return { left: 10, top: 20, width: 300, height: 40, bottom: 60, right: 310 };
+            return this.rect;
         }
     }
 
@@ -87,11 +89,27 @@ function setupDom() {
     globalThis.window = {
         innerWidth: 1280,
         innerHeight: 800,
+        scrollX: 0,
+        scrollY: 0,
         getSelection: () => ({ toString: () => "", rangeCount: 0 }),
+        addEventListener(type, handler) {
+            const handlers = windowListeners.get(type) || [];
+            handlers.push(handler);
+            windowListeners.set(type, handlers);
+        },
+        removeEventListener(type, handler) {
+            const handlers = windowListeners.get(type) || [];
+            windowListeners.set(type, handlers.filter((item) => item !== handler));
+        },
+        dispatchEvent(event) {
+            for (const handler of windowListeners.get(event.type) || []) {
+                handler(event);
+            }
+        },
         bbvtQuickBlockCloseHandler: null,
     };
 
-    return { body, nodes };
+    return { body, nodes, windowListeners };
 }
 
 afterEach(() => {
@@ -159,15 +177,59 @@ describe("comment quick block master switch guard", () => {
         const context = { settingsStore: createSettingsStore(true) };
         mountCommentQuickBlock(context, commentElement, { text: "测试评论", userId: "1", userName: "用户" });
 
+        window.scrollX = 30;
+        window.scrollY = 400;
         commentElement.dispatchEvent("mouseenter");
         const trigger = document.getElementById("bbvtCommentQuickBlockTrigger");
         assert.ok(trigger);
         assert.equal(trigger.hidden, false);
+        assert.equal(trigger.style.left, "284px");
+        assert.equal(trigger.style.top, "426px");
+        assert.equal(commentElement.dataset.bbvtCommentQuickBlockTarget, "true");
+        const marker = document.getElementById("bbvtCommentQuickBlockTargetMarker");
+        assert.ok(marker);
+        assert.equal(marker.style.left, "36px");
+        assert.equal(marker.style.top, "418px");
+        assert.equal(marker.style.width, "308px");
+        assert.equal(marker.style.height, "44px");
 
         context.settingsStore = createSettingsStore(false);
         commentElement.dispatchEvent("mouseenter");
 
         assert.equal(document.getElementById("bbvtCommentQuickBlockTrigger")?.hidden, true);
+        assert.equal(commentElement.dataset.bbvtCommentQuickBlockTarget, undefined);
+        assert.equal(document.getElementById("bbvtCommentQuickBlockTargetMarker"), null);
+    });
+
+    it("repositions the trigger and target marker on scroll", () => {
+        setupDom();
+
+        const commentElement = document.createElement("div");
+        document.body.appendChild(commentElement);
+
+        mountCommentQuickBlock(
+            { settingsStore: createSettingsStore(true) },
+            commentElement,
+            { text: "娴嬭瘯璇勮", userId: "1", userName: "鐢ㄦ埛" }
+        );
+
+        window.scrollY = 100;
+        commentElement.rect = { left: 10, top: 20, width: 300, height: 40, bottom: 60, right: 310 };
+        commentElement.dispatchEvent("mouseenter");
+
+        const trigger = document.getElementById("bbvtCommentQuickBlockTrigger");
+        const marker = document.getElementById("bbvtCommentQuickBlockTargetMarker");
+        assert.equal(trigger.style.top, "126px");
+        assert.equal(marker.style.top, "118px");
+
+        window.scrollY = 110;
+        commentElement.rect = { left: 10, top: 10, width: 300, height: 40, bottom: 50, right: 310 };
+        window.dispatchEvent({ type: "scroll" });
+
+        assert.equal(trigger.style.top, "126px");
+        assert.equal(marker.style.top, "118px");
+
+        dismissCommentQuickBlockUi();
     });
 
     it("does not show the trigger for a filtered comment", () => {
@@ -186,5 +248,52 @@ describe("comment quick block master switch guard", () => {
         commentElement.dispatchEvent("mouseenter");
 
         assert.equal(document.getElementById("bbvtCommentQuickBlockTrigger"), null);
+    });
+
+    it("clears the quick block target marker when dismissed", () => {
+        setupDom();
+
+        const commentElement = document.createElement("div");
+        document.body.appendChild(commentElement);
+
+        mountCommentQuickBlock(
+            { settingsStore: createSettingsStore(true) },
+            commentElement,
+            { text: "测试评论", userId: "1", userName: "用户" }
+        );
+
+        commentElement.dispatchEvent("mouseenter");
+        assert.equal(commentElement.dataset.bbvtCommentQuickBlockTarget, "true");
+        assert.ok(document.getElementById("bbvtCommentQuickBlockTargetMarker"));
+
+        dismissCommentQuickBlockUi();
+
+        assert.equal(commentElement.dataset.bbvtCommentQuickBlockTarget, undefined);
+        assert.equal(document.getElementById("bbvtCommentQuickBlockTargetMarker"), null);
+    });
+
+    it("updates an existing comment quick block style tag", () => {
+        setupDom();
+
+        const oldStyle = document.createElement("style");
+        oldStyle.id = "bbvtCommentQuickBlockStyles";
+        oldStyle.textContent = "#bbvtCommentQuickBlockTrigger { position: fixed; }";
+        document.head.appendChild(oldStyle);
+
+        const commentElement = document.createElement("div");
+        document.body.appendChild(commentElement);
+
+        mountCommentQuickBlock(
+            { settingsStore: createSettingsStore(true) },
+            commentElement,
+            { text: "娴嬭瘯璇勮", userId: "1", userName: "鐢ㄦ埛" }
+        );
+        commentElement.dispatchEvent("mouseenter");
+
+        assert.ok(oldStyle.textContent.includes("#bbvtCommentQuickBlockTrigger"));
+        assert.ok(oldStyle.textContent.includes("position: absolute;"));
+        assert.ok(oldStyle.textContent.includes("#bbvtCommentQuickBlockTargetMarker"));
+
+        dismissCommentQuickBlockUi();
     });
 });
