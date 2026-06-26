@@ -48,6 +48,7 @@ npm run build    # 生成 dist/
 npm run check    # 构建 + 语法检查 + 单元测试
 npm run lint     # ESLint
 npm run test     # 仅运行测试
+npm run perf:boundary # 轻量性能边界压测
 ```
 
 ## 相对原版的改动
@@ -57,8 +58,10 @@ npm run test     # 仅运行测试
 - 浮动入口、菜单白名单配置、按 BV 解封单条视频
 - API 调用与健康状态透明化（见 [`docs/capability-transparency.md`](docs/capability-transparency.md)）
 - 「显示与调试」中可开启 **已屏蔽后仍累计后续命中**：关闭时（默认）已屏蔽视频不再请求 API；开启后继续匹配后续规则
+- UI 入口统一为深色面板、图标化快捷按钮和更清晰的危险操作配色
+- 新增轻量边界压测脚本，用于对比名单规模、理论检查次数和实际耗时
 
-更多架构说明：[`docs/refactor-framework.md`](docs/refactor-framework.md)
+更多说明：[`docs/technical-report.md`](docs/technical-report.md) · [`docs/refactor-framework.md`](docs/refactor-framework.md)
 
 ## 功能
 
@@ -75,6 +78,38 @@ npm run test     # 仅运行测试
 - 导入、导出配置
 
 **生效页面**：首页、各分区首页、播放页右侧推荐、搜索页、综合热门、每周必看、入站必刷、排行榜、旧版首页（部分元素）等。
+
+## 能力边界与建议上限
+
+配置保存在油猴 `GM_blockedParameter` 中，不直接写入 B 站页面的 `localStorage` 或 `sessionStorage`。当前压测显示，常规名单的存储体积不是主要瓶颈，真正影响体感的是评论区的大名单线性匹配，尤其是评论正则和评论用户名单。
+
+当前边界压测固定三档：
+
+| 档位 | 结论 |
+|------|------|
+| 1000 条/名单 | 稳定档：视频规则和评论普通关键词整体可接受；评论正则、评论用户名单已能感知到额外开销。 |
+| 2000 条/名单 | 压力档：视频普通规则仍轻，视频正则和评论普通关键词可接受；评论正则、评论用户名单可能明显拖慢评论区。 |
+| 5000 条/名单 | 探索档：存储仍可回读，但只适合视频普通名单；视频正则、评论普通关键词开始有明显风险，评论正则和评论用户名单不建议使用到这个规模。 |
+
+建议上限：
+
+| 类型 | 建议 |
+|------|------|
+| 视频普通名单（标题、UP UID、标签、白名单） | 5000 条以内通常可接受 |
+| 视频正则名单 | 建议 2000 条以内 |
+| 评论普通关键词 | 建议 2000 条以内 |
+| 评论正则关键词 | 建议 500-1000 条以内 |
+| 评论用户名单 | 建议 500-1000 条以内，2000 条以上可能明显卡顿 |
+
+以上是本地轻量压测口径，不等于浏览器真实页面的硬限制。实际体感还会受页面评论数量、B 站 DOM 变化、浏览器性能和同时启用的其他脚本影响。
+
+压测脚本：
+
+```bash
+npm run perf:boundary
+```
+
+详细数据见 [`docs/performance-boundary-report-2026-06-26.md`](docs/performance-boundary-report-2026-06-26.md)。
 
 ## 实现逻辑
 
@@ -99,4 +134,6 @@ npm run test     # 仅运行测试
 | | |
 |---|---|
 | 本仓库 | [Turing222/bilibili_blocked](https://github.com/Turing222/bilibili_blocked) |
+| 技术报告 | [`docs/technical-report.md`](docs/technical-report.md) |
+| 性能边界报告 | [`docs/performance-boundary-report-2026-06-26.md`](docs/performance-boundary-report-2026-06-26.md) |
 | 许可证全文 | [`LICENSE`](LICENSE) · [CC BY-NC-SA 4.0](https://creativecommons.org/licenses/by-nc-sa/4.0/) |

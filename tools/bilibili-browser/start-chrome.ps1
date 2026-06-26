@@ -1,7 +1,8 @@
 param(
   [string]$ProfileDir = "$env:USERPROFILE\codex-browser-profiles\bilibili",
   [int]$Port = 9223,
-  [string]$Url = "https://www.bilibili.com/"
+  [string]$Url = "https://www.bilibili.com/",
+  [switch]$OpenUrlWhenRunning
 )
 
 $ErrorActionPreference = "Stop"
@@ -38,6 +39,13 @@ if (-not $alreadyRunning) {
   )
   Start-Process -FilePath $chrome -ArgumentList $args
   Start-Sleep -Seconds 2
+} elseif ($OpenUrlWhenRunning -and $Url) {
+  $newTabUrl = "http://127.0.0.1:$Port/json/new?$([uri]::EscapeDataString($Url))"
+  try {
+    Invoke-RestMethod -Method Put -Uri $newTabUrl -TimeoutSec 5 | Out-Null
+  } catch {
+    Start-Process -FilePath $chrome -ArgumentList @("--user-data-dir=$ProfileDir", $Url)
+  }
 }
 
 $version = Invoke-RestMethod -Uri $versionUrl -TimeoutSec 10
@@ -45,6 +53,7 @@ $version = Invoke-RestMethod -Uri $versionUrl -TimeoutSec 10
   status = if ($alreadyRunning) { "already-running" } else { "started" }
   profileDir = $ProfileDir
   port = $Port
+  openedUrl = [bool]($OpenUrlWhenRunning -and $Url)
   browser = $version.Browser
   debuggerUrl = $version.webSocketDebuggerUrl
 } | ConvertTo-Json -Depth 4

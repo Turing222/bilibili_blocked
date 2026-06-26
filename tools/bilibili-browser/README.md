@@ -97,3 +97,44 @@ rendered `bili-rich-text` text from Shadow DOM.
 
 This uses Chrome DevTools Protocol on `127.0.0.1:9223` and does not require
 Playwright or browser-use.
+
+## Tampermonkey Dev Loader
+
+Use this when you want to install the current local build through Tampermonkey
+instead of injecting it with the smoke scripts:
+
+```powershell
+npm run tm:dev
+```
+
+What it does:
+
+```text
+1. Builds dist/bilibili_blocked.dev.body.js
+2. Writes dist/bilibili_blocked.dev.user.js
+3. Serves dist on http://127.0.0.1:8741/
+4. Opens the dev userscript install/update URL in the Bilibili Chrome profile
+```
+
+The dev userscript keeps the normal script name and namespace so it updates the
+same Tampermonkey script and keeps the same GM storage. Its executable code is
+loaded through:
+
+```text
+@require http://127.0.0.1:8741/bilibili_blocked.dev.body.js?v=<timestamp>
+```
+
+Keep the `tm:dev` process running until Tampermonkey has finished installing or
+updating the script. For a build-only refresh:
+
+```powershell
+npm run tm:dev:build
+```
+
+Useful options:
+
+```powershell
+npm run tm:dev -- --port 8742
+npm run tm:dev -- --no-open
+npm run tm:dev -- --build-only
+```
