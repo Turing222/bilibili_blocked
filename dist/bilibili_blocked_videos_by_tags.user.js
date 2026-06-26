@@ -9,13 +9,7 @@
 // @supportURL      https://github.com/Turing222/bilibili_blocked/issues
 // @icon            https://www.bilibili.com/favicon.ico
 // @match           https://www.bilibili.com/*
-// @match           https://live.bilibili.com/*
 // @match           https://search.bilibili.com/*
-// @match           https://space.bilibili.com/*
-// @match           https://account.bilibili.com/*
-// @match           https://message.bilibili.com/*
-// @match           https://t.bilibili.com/*
-// @match           https://link.bilibili.com/*
 // @grant           GM_registerMenuCommand
 // @grant           GM_setValue
 // @grant           GM_getValue
@@ -305,6 +299,74 @@ function isMasterSwitchEnabled(context) {
     return settings?.scriptEnabled_Switch !== false;
 }
 
+// ---- src/ui/icons.js ----
+const iconPaths = {
+    settings: [
+        "M12 8a4 4 0 1 0 0 8a4 4 0 0 0 0-8",
+        "M12 2v3M12 19v3M4.93 4.93l2.12 2.12M16.95 16.95l2.12 2.12M2 12h3M19 12h3M4.93 19.07l2.12-2.12M16.95 7.05l2.12-2.12",
+    ],
+    close: ["M18 6 6 18M6 6l12 12"],
+    shield: ["M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"],
+    save: ["M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2zM17 21v-8H7v8M7 3v5h8"],
+    upload: ["M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4M17 8l-5-5-5 5M12 3v12"],
+    download: ["M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4M7 10l5 5 5-5M12 15V3"],
+    refresh: ["M21 12a9 9 0 0 1-15.5 6.3M3 12A9 9 0 0 1 18.5 5.7M18 3v4h-4M6 21v-4h4"],
+    eye: ["M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7-10-7-10-7z", "M12 9a3 3 0 1 0 0 6a3 3 0 0 0 0-6"],
+    code: ["M16 18l6-6-6-6M8 6l-6 6 6 6"],
+    chart: ["M3 3v18h18M7 16v-5M12 16V8M17 16v-9"],
+    plus: ["M12 5v14M5 12h14"],
+    trash: ["M3 6h18M8 6V4h8v2M6 6l1 14h10l1-14M10 11v6M14 11v6"],
+    userX: ["M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2M9 11a4 4 0 1 0 0-8a4 4 0 0 0 0 8M17 8l5 5M22 8l-5 5"],
+    tag: ["M20.5 13.5 13.5 20.5a2 2 0 0 1-2.8 0L3 12.8V3h9.8l7.7 7.7a2 2 0 0 1 0 2.8zM7.5 7.5h.01"],
+};
+function setButtonIcon(button, iconName, label, text = "") {
+    if (!button) {
+        return;
+    }
+
+    button.textContent = "";
+    button.appendChild(createIcon(iconName));
+
+    if (text) {
+        const labelElement = document.createElement("span");
+        labelElement.className = "bbvt-icon-label";
+        labelElement.textContent = text;
+        button.appendChild(labelElement);
+    }
+
+    if (label && !button.title) {
+        button.title = label;
+    }
+    button.setAttribute?.("aria-label", label || text || iconName);
+}
+function createIcon(iconName) {
+    if (typeof document.createElementNS !== "function") {
+        const fallback = document.createElement("span");
+        fallback.className = "bbvt-icon";
+        fallback.setAttribute?.("aria-hidden", "true");
+        return fallback;
+    }
+
+    const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+    svg.setAttribute("class", "bbvt-icon");
+    svg.setAttribute("viewBox", "0 0 24 24");
+    svg.setAttribute("fill", "none");
+    svg.setAttribute("stroke", "currentColor");
+    svg.setAttribute("stroke-width", "2");
+    svg.setAttribute("stroke-linecap", "round");
+    svg.setAttribute("stroke-linejoin", "round");
+    svg.setAttribute("aria-hidden", "true");
+
+    const paths = iconPaths[iconName] || iconPaths.shield;
+    paths.forEach((pathData) => {
+        const path = document.createElementNS("http://www.w3.org/2000/svg", "path");
+        path.setAttribute("d", pathData);
+        svg.appendChild(path);
+    });
+
+    return svg;
+}
+
 // ---- src/actions/quick-block.js ----
 const quickBlockId = "bbvtQuickBlock";function closeQuickBlockOverlay() {
     const existing = document.getElementById(quickBlockId);
@@ -406,6 +468,7 @@ function buildQuickBlockPopupShell(overlay, context, state, videoBv, videoElemen
 
     const header = createQuickBlockEl("div", "qb-header");
     const closeButton = createQuickBlockEl("button", "qb-close", "×");
+    setButtonIcon(closeButton, "close", "关闭快速屏蔽");
     closeButton.addEventListener("click", () => overlay.remove());
     header.append(createQuickBlockEl("span", "qb-title", "快速屏蔽"), closeButton);
 
@@ -423,6 +486,7 @@ function buildQuickBlockPopupShell(overlay, context, state, videoBv, videoElemen
         upField.appendChild(createQuickBlockEl("div", "qb-subtext", state.upDisplayText));
     }
     const upQuickBtn = createQuickBlockEl("button", "qb-quick-btn", "屏蔽");
+    setButtonIcon(upQuickBtn, "userX", "屏蔽 UP", "屏蔽");
     upQuickBtn.disabled = !state.upValue.trim();
     upQuickBtn.addEventListener("click", () => {
         if (!state.upValue.trim()) return;
@@ -444,6 +508,7 @@ function buildQuickBlockPopupShell(overlay, context, state, videoBv, videoElemen
 
     const candidates = createQuickBlockEl("div", "qb-candidates");
     const titleQuickBtn = createQuickBlockEl("button", "qb-quick-btn", "屏蔽");
+    setButtonIcon(titleQuickBtn, "shield", "屏蔽标题关键词", "屏蔽");
     const updateTitleQuickBtn = () => {
         titleQuickBtn.disabled = !hasQuickBlockSelection(state.selectedTitleChips, state.titleValue);
     };
@@ -469,6 +534,7 @@ function buildQuickBlockPopupShell(overlay, context, state, videoBv, videoElemen
     partitionRow.appendChild(createQuickBlockEl("div", "qb-row-label", "分区"));
     const partitionInfo = createQuickBlockEl("div", "qb-info qb-info-muted", "分区加载中...");
     const partitionQuickBtn = createQuickBlockEl("button", "qb-quick-btn", "屏蔽");
+    setButtonIcon(partitionQuickBtn, "shield", "屏蔽分区", "屏蔽");
     partitionQuickBtn.addEventListener("click", () => {
         const value = getPartitionBlockValue(state);
         if (!value) return;
@@ -483,6 +549,7 @@ function buildQuickBlockPopupShell(overlay, context, state, videoBv, videoElemen
     tagsRow.appendChild(createQuickBlockEl("div", "qb-row-label", "标签"));
     const chipsContainer = createQuickBlockEl("div", "qb-chips");
     const tagsQuickBtn = createQuickBlockEl("button", "qb-quick-btn", "屏蔽");
+    setButtonIcon(tagsQuickBtn, "tag", "屏蔽标签", "屏蔽");
     tagsQuickBtn.addEventListener("click", () => {
         const values = [...state.selectedTags];
         if (values.length === 0) return;
@@ -644,12 +711,12 @@ function injectQuickBlockStyles() {
 
         #${quickBlockId} .qb-panel {
             width: 380px;
-            background: rgba(40, 40, 40, 0.9);
+            background: rgba(22, 25, 30, 0.94);
             backdrop-filter: blur(12px);
             -webkit-backdrop-filter: blur(12px);
-            color: rgb(250, 250, 250);
-            border-radius: 12px;
-            border: 1px solid rgba(255, 255, 255, 0.1);
+            color: rgb(239, 244, 248);
+            border-radius: 8px;
+            border: 1px solid rgba(255, 255, 255, 0.12);
             box-shadow: 0 10px 30px rgba(0, 0, 0, 0.4);
             display: flex;
             flex-direction: column;
@@ -661,21 +728,22 @@ function injectQuickBlockStyles() {
             align-items: center;
             justify-content: space-between;
             padding: 10px 14px;
-            background: rgba(30, 30, 30, 0.6);
-            border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+            background: rgba(31, 36, 43, 0.86);
+            border-bottom: 1px solid rgba(255, 255, 255, 0.08);
         }
 
         #${quickBlockId} .qb-title { font-size: 14px; font-weight: 700; }
 
         #${quickBlockId} .qb-close {
-            width: 24px; height: 24px; padding: 0; font-size: 16px;
+            width: 24px; height: 24px; padding: 0; font-size: 13px;
             line-height: 24px; border: 0; border-radius: 6px;
-            background: rgba(255, 255, 255, 0.1); color: rgb(220, 220, 220);
+            background: rgba(255, 255, 255, 0.08); color: rgb(222, 229, 235);
             cursor: pointer; transition: all 0.2s ease;
+            display: inline-flex; align-items: center; justify-content: center;
         }
 
         #${quickBlockId} .qb-close:hover {
-            background: rgba(255, 60, 60, 0.8);
+            background: rgba(232, 93, 93, 0.9);
             color: white;
         }
 
@@ -687,7 +755,7 @@ function injectQuickBlockStyles() {
 
         #${quickBlockId} .qb-row-label {
             width: 36px; flex: 0 0 36px; padding-top: 7px;
-            color: rgb(190, 190, 190); font-size: 12px; font-weight: 700;
+            color: rgb(170, 181, 193); font-size: 12px; font-weight: 700;
         }
 
         #${quickBlockId} .qb-field {
@@ -695,25 +763,25 @@ function injectQuickBlockStyles() {
         }
 
         #${quickBlockId} .qb-subtext {
-            color: rgb(160,160,160); font-size: 11px; line-height: 1.3;
+            color: rgb(142, 154, 168); font-size: 11px; line-height: 1.3;
             overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
         }
 
         #${quickBlockId} .qb-input {
-            flex: 1; width: 100%; border: 1px solid rgba(255,255,255,0.1); border-radius: 6px;
-            background: rgba(20,20,20,0.6); color: rgb(245,245,245);
+            flex: 1; width: 100%; border: 1px solid rgba(255,255,255,0.12); border-radius: 6px;
+            background: rgba(12, 15, 19, 0.72); color: rgb(239,244,248);
             padding: 6px 8px; font-size: 12px; outline: none; box-sizing: border-box;
             transition: border-color 0.2s;
         }
-        #${quickBlockId} .qb-input:focus { border-color: rgb(0, 174, 236); }
+        #${quickBlockId} .qb-input:focus { border-color: rgb(18, 183, 219); }
 
         #${quickBlockId} .qb-info {
-            flex: 1; min-width: 0; border: 1px solid rgba(255,255,255,0.1); border-radius: 6px;
-            background: rgba(20,20,20,0.6); color: rgb(245,245,245);
+            flex: 1; min-width: 0; border: 1px solid rgba(255,255,255,0.12); border-radius: 6px;
+            background: rgba(12, 15, 19, 0.72); color: rgb(239,244,248);
             padding: 6px 8px; font-size: 12px; line-height: 1.35; box-sizing: border-box;
             overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
         }
-        #${quickBlockId} .qb-info-muted { color: rgb(160,160,160); }
+        #${quickBlockId} .qb-info-muted { color: rgb(142,154,168); }
 
         #${quickBlockId} .qb-candidates {
             display: flex; flex-wrap: wrap; gap: 6px;
@@ -723,34 +791,41 @@ function injectQuickBlockStyles() {
 
         #${quickBlockId} .qb-chip {
             display: inline-flex; align-items: center; border-radius: 99px;
-            background: rgba(80,80,80,0.4); color: rgb(180,180,180); border: 1px solid rgba(255,255,255,0.05);
+            background: rgba(255,255,255,0.07); color: rgb(196,205,214); border: 1px solid rgba(255,255,255,0.08);
             padding: 3px 10px; font-size: 11px; cursor: pointer; user-select: none; transition: all 0.2s ease;
             max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
             font-family: inherit;
         }
 
         #${quickBlockId} .qb-chip:hover {
-            background: rgba(0, 174, 236, 0.8); color: white;
+            background: rgba(18, 183, 219, 0.82); color: white;
         }
 
         #${quickBlockId} .qb-chip-selected {
-            background: rgba(0, 174, 236, 0.85); color: white;
-            border-color: rgba(0, 174, 236, 0.4);
+            background: rgba(18, 183, 219, 0.9); color: white;
+            border-color: rgba(18, 183, 219, 0.45);
         }
 
         #${quickBlockId} .qb-chip-selected:hover {
-            background: rgb(0, 190, 255); color: white;
+            background: rgb(33, 202, 238); color: white;
         }
 
-        #${quickBlockId} .qb-hint { font-size: 12px; color: rgb(160,160,160); padding-top: 4px; }
+        #${quickBlockId} .qb-hint { font-size: 12px; color: rgb(142,154,168); padding-top: 4px; }
 
         #${quickBlockId} .qb-quick-btn {
             border: 0; border-radius: 6px; padding: 5px 10px; font-size: 12px;
-            background: rgba(0,174,236,0.15); color: rgb(0,174,236); cursor: pointer;
+            background: rgba(18,183,219,0.14); color: rgb(91,213,237); cursor: pointer;
             white-space: nowrap; flex-shrink: 0; transition: all 0.2s ease;
+            display: inline-flex; align-items: center; justify-content: center; gap: 5px;
         }
-        #${quickBlockId} .qb-quick-btn:hover:not(:disabled) { background: rgb(0,174,236); color: white; }
-        #${quickBlockId} .qb-quick-btn:disabled { background: rgba(60,60,60,0.4); color: rgb(120,120,120); cursor: default; }
+        #${quickBlockId} .qb-quick-btn:hover:not(:disabled) { background: rgb(18,183,219); color: white; }
+        #${quickBlockId} .qb-quick-btn:disabled { background: rgba(62,70,80,0.45); color: rgb(116,126,138); cursor: default; }
+
+        #${quickBlockId} .bbvt-icon {
+            width: 13px;
+            height: 13px;
+            flex: 0 0 auto;
+        }
     `;
 
     const style = document.createElement("style");
@@ -761,6 +836,7 @@ function injectQuickBlockStyles() {
 
 // ---- src/actions/comment-quick-block.js ----
 const triggerId = "bbvtCommentQuickBlockTrigger";
+const targetMarkerId = "bbvtCommentQuickBlockTargetMarker";
 const popupId = "bbvtCommentQuickBlockPopup";
 const styleId = "bbvtCommentQuickBlockStyles";
 const maxQuickBlockTextLength = 160;
@@ -768,6 +844,9 @@ const maxQuickBlockTextLength = 160;
 const commentQuickBlockStates = new WeakMap();
 let hideTriggerTimer = null;
 let popupCloseHandler = null;
+let activeTargetCommentElement = null;
+let targetMarkerListenersBound = false;
+let targetPositionFrame = null;
 function dismissCommentQuickBlockUi() {
     closeCommentQuickBlockPopup();
     hideCommentQuickBlockTrigger();
@@ -822,7 +901,11 @@ function showCommentQuickBlockTrigger(commentElement) {
         openCommentQuickBlockPopup(state.context, commentElement, state.commentInfo, event.clientX, event.clientY);
     };
 
-    positionTrigger(trigger, commentElement);
+    if (!positionTrigger(trigger, commentElement)) {
+        clearCommentQuickBlockTarget();
+        return;
+    }
+    markCommentQuickBlockTarget(commentElement);
     trigger.hidden = false;
 }
 
@@ -840,8 +923,8 @@ function ensureCommentQuickBlockTrigger() {
     trigger = document.createElement("button");
     trigger.id = triggerId;
     trigger.type = "button";
-    trigger.textContent = "屏蔽";
     trigger.title = "快速屏蔽这条评论";
+    setButtonIcon(trigger, "shield", "快速屏蔽这条评论", "屏蔽");
     trigger.hidden = true;
     trigger.addEventListener("mouseenter", clearHideTriggerTimer);
     trigger.addEventListener("mouseleave", scheduleHideTrigger);
@@ -855,21 +938,32 @@ function ensureCommentQuickBlockTrigger() {
 
 function positionTrigger(trigger, commentElement) {
     const rect = commentElement.getBoundingClientRect();
-    if (rect.width <= 0 || rect.height <= 0 || rect.bottom < 0 || rect.top > window.innerHeight) {
+    const viewportWidth = window.innerWidth || document.documentElement?.clientWidth || 1280;
+    const viewportHeight = window.innerHeight || document.documentElement?.clientHeight || 800;
+    if (
+        commentElement.isConnected === false ||
+        rect.width <= 0 ||
+        rect.height <= 0 ||
+        rect.bottom < 0 ||
+        rect.top > viewportHeight
+    ) {
         trigger.hidden = true;
-        return;
+        return false;
     }
 
     trigger.style.visibility = "hidden";
     trigger.hidden = false;
 
     const margin = 8;
-    const left = clamp(rect.right - trigger.offsetWidth - margin, margin, window.innerWidth - trigger.offsetWidth - margin);
-    const top = clamp(rect.top + 6, margin, window.innerHeight - trigger.offsetHeight - margin);
+    const triggerWidth = trigger.offsetWidth || 48;
+    const triggerHeight = trigger.offsetHeight || 26;
+    const left = clamp(rect.right - triggerWidth - margin, margin, viewportWidth - triggerWidth - margin) + getPageScrollX();
+    const top = clamp(rect.top + 6, margin, viewportHeight - triggerHeight - margin) + getPageScrollY();
 
     trigger.style.left = `${left}px`;
     trigger.style.top = `${top}px`;
     trigger.style.visibility = "";
+    return true;
 }
 
 function scheduleHideTrigger() {
@@ -893,6 +987,7 @@ function hideCommentQuickBlockTrigger() {
     if (trigger) {
         trigger.hidden = true;
     }
+    clearCommentQuickBlockTarget();
 }
 
 function openCommentQuickBlockPopup(context, commentElement, commentInfo, x, y) {
@@ -903,6 +998,7 @@ function openCommentQuickBlockPopup(context, commentElement, commentInfo, x, y) 
 
     closeCommentQuickBlockPopup();
     clearHideTriggerTimer();
+    markCommentQuickBlockTarget(commentElement);
 
     const initialText = getInitialQuickBlockText(commentElement, commentInfo.text);
     const userRule = getCommentUserRule(commentInfo);
@@ -925,7 +1021,7 @@ function openCommentQuickBlockPopup(context, commentElement, commentInfo, x, y) 
     const closeButton = document.createElement("button");
     closeButton.type = "button";
     closeButton.className = "bbvt-comment-qb-icon-btn";
-    closeButton.textContent = "×";
+    setButtonIcon(closeButton, "close", "关闭快速屏蔽评论");
     closeButton.addEventListener("click", closeCommentQuickBlockPopup);
     header.append(title, closeButton);
 
@@ -944,7 +1040,7 @@ function openCommentQuickBlockPopup(context, commentElement, commentInfo, x, y) 
     const userButton = document.createElement("button");
     userButton.type = "button";
     userButton.className = "bbvt-comment-qb-secondary";
-    userButton.textContent = "屏蔽用户";
+    setButtonIcon(userButton, "userX", "屏蔽评论用户", "屏蔽用户");
     userButton.hidden = !userRule;
     userButton.title = formatCommentUserLabel(commentInfo);
     userButton.addEventListener("click", () => {
@@ -960,7 +1056,7 @@ function openCommentQuickBlockPopup(context, commentElement, commentInfo, x, y) 
     const confirmButton = document.createElement("button");
     confirmButton.type = "button";
     confirmButton.className = "bbvt-comment-qb-primary";
-    confirmButton.textContent = "屏蔽内容";
+    setButtonIcon(confirmButton, "shield", "屏蔽评论内容", "屏蔽内容");
     const cancelButton = document.createElement("button");
     cancelButton.type = "button";
     cancelButton.className = "bbvt-comment-qb-secondary";
@@ -1027,6 +1123,148 @@ function closeCommentQuickBlockPopup() {
         document.removeEventListener("mousedown", popupCloseHandler);
         popupCloseHandler = null;
     }
+    clearCommentQuickBlockTarget();
+}
+
+function markCommentQuickBlockTarget(commentElement) {
+    if (activeTargetCommentElement === commentElement) {
+        positionCommentQuickBlockTargetMarker(commentElement);
+        return;
+    }
+
+    clearCommentQuickBlockTarget();
+    activeTargetCommentElement = commentElement;
+    if (activeTargetCommentElement?.dataset) {
+        activeTargetCommentElement.dataset.bbvtCommentQuickBlockTarget = "true";
+    }
+    positionCommentQuickBlockTargetMarker(commentElement);
+    bindCommentQuickBlockTargetMarkerListeners();
+}
+
+function clearCommentQuickBlockTarget() {
+    if (activeTargetCommentElement?.dataset) {
+        delete activeTargetCommentElement.dataset.bbvtCommentQuickBlockTarget;
+    }
+    activeTargetCommentElement = null;
+    document.getElementById(targetMarkerId)?.remove();
+    cancelCommentQuickBlockTargetPositionUpdate();
+    unbindCommentQuickBlockTargetMarkerListeners();
+}
+
+function positionCommentQuickBlockTargetMarker(commentElement) {
+    const rect = commentElement?.getBoundingClientRect?.();
+    const viewportHeight = window.innerHeight || document.documentElement?.clientHeight || 800;
+    if (
+        commentElement?.isConnected === false ||
+        !rect ||
+        rect.width <= 0 ||
+        rect.height <= 0 ||
+        rect.bottom < 0 ||
+        rect.top > viewportHeight
+    ) {
+        document.getElementById(targetMarkerId)?.remove();
+        return;
+    }
+
+    const marker = ensureCommentQuickBlockTargetMarker();
+    const margin = 6;
+    const left = Math.max(margin, rect.left - 4) + getPageScrollX();
+    const top = Math.max(margin, rect.top - 2) + getPageScrollY();
+    const width = Math.max(44, rect.width + 8);
+    const height = Math.max(28, rect.height + 4);
+
+    marker.style.left = `${left}px`;
+    marker.style.top = `${top}px`;
+    marker.style.width = `${width}px`;
+    marker.style.height = `${height}px`;
+}
+
+function ensureCommentQuickBlockTargetMarker() {
+    let marker = document.getElementById(targetMarkerId);
+    if (marker) {
+        return marker;
+    }
+
+    marker = document.createElement("div");
+    marker.id = targetMarkerId;
+    marker.className = "bbvt-comment-qb-target-marker";
+
+    const line = document.createElement("div");
+    line.className = "bbvt-comment-qb-target-line";
+    marker.appendChild(line);
+
+    document.body.appendChild(marker);
+    return marker;
+}
+
+function updateCommentQuickBlockTargetMarker() {
+    scheduleCommentQuickBlockTargetPositionUpdate();
+}
+
+function scheduleCommentQuickBlockTargetPositionUpdate() {
+    if (targetPositionFrame !== null) {
+        return;
+    }
+
+    const update = () => {
+        targetPositionFrame = null;
+        positionActiveCommentQuickBlockUi();
+    };
+    if (typeof window.requestAnimationFrame === "function") {
+        targetPositionFrame = window.requestAnimationFrame(update);
+        return;
+    }
+
+    targetPositionFrame = 0;
+    update();
+}
+
+function cancelCommentQuickBlockTargetPositionUpdate() {
+    if (targetPositionFrame === null) {
+        return;
+    }
+
+    if (targetPositionFrame !== 0 && typeof window.cancelAnimationFrame === "function") {
+        window.cancelAnimationFrame(targetPositionFrame);
+    }
+    targetPositionFrame = null;
+}
+
+function positionActiveCommentQuickBlockUi() {
+    if (!activeTargetCommentElement || activeTargetCommentElement.isConnected === false) {
+        const trigger = document.getElementById(triggerId);
+        if (trigger) {
+            trigger.hidden = true;
+        }
+        clearCommentQuickBlockTarget();
+        return;
+    }
+
+    const trigger = document.getElementById(triggerId);
+    if (trigger && !document.getElementById(popupId)) {
+        positionTrigger(trigger, activeTargetCommentElement);
+    }
+    positionCommentQuickBlockTargetMarker(activeTargetCommentElement);
+}
+
+function bindCommentQuickBlockTargetMarkerListeners() {
+    if (targetMarkerListenersBound) {
+        return;
+    }
+
+    window.addEventListener?.("scroll", updateCommentQuickBlockTargetMarker, true);
+    window.addEventListener?.("resize", updateCommentQuickBlockTargetMarker);
+    targetMarkerListenersBound = true;
+}
+
+function unbindCommentQuickBlockTargetMarkerListeners() {
+    if (!targetMarkerListenersBound) {
+        return;
+    }
+
+    window.removeEventListener?.("scroll", updateCommentQuickBlockTargetMarker, true);
+    window.removeEventListener?.("resize", updateCommentQuickBlockTargetMarker);
+    targetMarkerListenersBound = false;
 }
 
 function getInitialQuickBlockText(commentElement, commentText) {
@@ -1130,32 +1368,63 @@ function clamp(value, min, max) {
     return Math.max(min, Math.min(value, max));
 }
 
+function getPageScrollX() {
+    return window.scrollX || window.pageXOffset || document.documentElement?.scrollLeft || document.body?.scrollLeft || 0;
+}
+
+function getPageScrollY() {
+    return window.scrollY || window.pageYOffset || document.documentElement?.scrollTop || document.body?.scrollTop || 0;
+}
+
 function canUseDom() {
     return typeof document === "object" && typeof window === "object" && document.body;
 }
 
 function injectCommentQuickBlockStyles() {
-    if (document.getElementById(styleId)) {
-        return;
-    }
-
     const css = `
         #${triggerId} {
-            position: fixed;
+            position: absolute;
             z-index: 2147483646;
             border: 0;
             border-radius: 6px;
-            background: rgba(0, 174, 236, 0.92);
+            background: rgba(18, 183, 219, 0.94);
             color: white;
             padding: 4px 9px;
             font-size: 12px;
             line-height: 1.4;
             cursor: pointer;
             box-shadow: 0 4px 14px rgba(0, 0, 0, 0.16);
+            display: inline-flex;
+            align-items: center;
+            gap: 5px;
         }
 
         #${triggerId}:hover {
-            background: rgb(0, 190, 255);
+            background: rgb(33, 202, 238);
+        }
+
+        #${targetMarkerId} {
+            position: absolute;
+            z-index: 2147483645;
+            pointer-events: none;
+            box-sizing: border-box;
+            border-radius: 8px;
+            border-left: 3px solid rgba(18, 183, 219, 0.95);
+            background: rgba(18, 183, 219, 0.08);
+            box-shadow:
+                inset -42px 0 0 rgba(18, 183, 219, 0.08),
+                0 0 0 1px rgba(18, 183, 219, 0.2),
+                0 8px 24px rgba(0, 0, 0, 0.12);
+        }
+
+        #${targetMarkerId} .bbvt-comment-qb-target-line {
+            position: absolute;
+            top: 12px;
+            right: 10px;
+            width: 34px;
+            height: 2px;
+            border-radius: 999px;
+            background: rgba(18, 183, 219, 0.95);
         }
 
         #${popupId} {
@@ -1169,10 +1438,10 @@ function injectCommentQuickBlockStyles() {
             box-sizing: border-box;
             width: 100%;
             overflow: hidden;
-            border: 1px solid rgba(0, 0, 0, 0.1);
+            border: 1px solid rgba(255, 255, 255, 0.12);
             border-radius: 8px;
-            background: rgba(255, 255, 255, 0.98);
-            color: rgb(32, 32, 32);
+            background: rgba(22, 25, 30, 0.96);
+            color: rgb(239, 244, 248);
             box-shadow: 0 12px 34px rgba(0, 0, 0, 0.18);
         }
 
@@ -1181,7 +1450,7 @@ function injectCommentQuickBlockStyles() {
             align-items: center;
             justify-content: space-between;
             padding: 10px 12px;
-            border-bottom: 1px solid rgba(0, 0, 0, 0.08);
+            border-bottom: 1px solid rgba(255, 255, 255, 0.08);
             font-size: 13px;
             font-weight: 700;
         }
@@ -1193,14 +1462,17 @@ function injectCommentQuickBlockStyles() {
             border: 0;
             border-radius: 6px;
             background: transparent;
-            color: rgb(90, 90, 90);
+            color: rgb(205, 214, 224);
             cursor: pointer;
-            font-size: 18px;
+            font-size: 13px;
             line-height: 24px;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
         }
 
         #${popupId} .bbvt-comment-qb-icon-btn:hover {
-            background: rgba(0, 0, 0, 0.07);
+            background: rgba(255, 255, 255, 0.08);
         }
 
         #${popupId} .bbvt-comment-qb-candidates {
@@ -1212,16 +1484,16 @@ function injectCommentQuickBlockStyles() {
 
         #${popupId} .bbvt-comment-qb-hint {
             font-size: 12px;
-            color: rgb(130, 130, 130);
+            color: rgb(142, 154, 168);
         }
 
         #${popupId} .bbvt-comment-qb-chip {
             display: inline-flex;
             align-items: center;
-            border: 1px solid rgba(0, 0, 0, 0.1);
+            border: 1px solid rgba(255, 255, 255, 0.09);
             border-radius: 99px;
-            background: rgba(0, 0, 0, 0.05);
-            color: rgb(70, 70, 70);
+            background: rgba(255, 255, 255, 0.07);
+            color: rgb(196, 205, 214);
             padding: 3px 10px;
             font-size: 11px;
             cursor: pointer;
@@ -1233,19 +1505,19 @@ function injectCommentQuickBlockStyles() {
         }
 
         #${popupId} .bbvt-comment-qb-chip:hover {
-            background: rgba(0, 174, 236, 0.12);
-            border-color: rgba(0, 174, 236, 0.35);
-            color: rgb(0, 120, 180);
+            background: rgba(18, 183, 219, 0.16);
+            border-color: rgba(18, 183, 219, 0.38);
+            color: rgb(91, 213, 237);
         }
 
         #${popupId} .bbvt-comment-qb-chip-selected {
-            background: rgba(0, 174, 236, 0.88);
-            border-color: rgba(0, 174, 236, 0.88);
+            background: rgba(18, 183, 219, 0.9);
+            border-color: rgba(18, 183, 219, 0.9);
             color: white;
         }
 
         #${popupId} .bbvt-comment-qb-chip-selected:hover {
-            background: rgb(0, 190, 255);
+            background: rgb(33, 202, 238);
             color: white;
         }
 
@@ -1257,19 +1529,19 @@ function injectCommentQuickBlockStyles() {
             resize: vertical;
             min-height: 68px;
             max-height: 150px;
-            border: 1px solid rgba(0, 0, 0, 0.12);
+            border: 1px solid rgba(255, 255, 255, 0.12);
             border-radius: 6px;
             padding: 8px;
-            color: rgb(32, 32, 32);
-            background: rgb(255, 255, 255);
+            color: rgb(239, 244, 248);
+            background: rgba(12, 15, 19, 0.72);
             font-size: 12px;
             line-height: 1.45;
             outline: none;
         }
 
         #${popupId} .bbvt-comment-qb-input:focus {
-            border-color: rgb(0, 174, 236);
-            box-shadow: 0 0 0 2px rgba(0, 174, 236, 0.14);
+            border-color: rgb(18, 183, 219);
+            box-shadow: 0 0 0 2px rgba(18, 183, 219, 0.16);
         }
 
         #${popupId} .bbvt-comment-qb-actions {
@@ -1287,31 +1559,51 @@ function injectCommentQuickBlockStyles() {
             padding: 6px 12px;
             font-size: 12px;
             cursor: pointer;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            gap: 5px;
         }
 
         #${popupId} .bbvt-comment-qb-primary {
-            background: rgb(0, 174, 236);
+            background: rgb(18, 183, 219);
             color: white;
         }
 
         #${popupId} .bbvt-comment-qb-primary:hover:not(:disabled) {
-            background: rgb(0, 190, 255);
+            background: rgb(33, 202, 238);
         }
 
         #${popupId} .bbvt-comment-qb-primary:disabled {
-            background: rgb(180, 180, 180);
+            background: rgb(70, 78, 88);
+            color: rgb(132, 143, 155);
             cursor: default;
         }
 
         #${popupId} .bbvt-comment-qb-secondary {
-            background: rgba(0, 0, 0, 0.07);
-            color: rgb(70, 70, 70);
+            background: rgba(255, 255, 255, 0.08);
+            color: rgb(215, 222, 229);
         }
 
         #${popupId} .bbvt-comment-qb-secondary:hover {
-            background: rgba(0, 0, 0, 0.12);
+            background: rgba(255, 255, 255, 0.14);
+        }
+
+        #${triggerId} .bbvt-icon,
+        #${popupId} .bbvt-icon {
+            width: 13px;
+            height: 13px;
+            flex: 0 0 auto;
         }
     `;
+
+    const existingStyle = document.getElementById(styleId);
+    if (existingStyle) {
+        if (existingStyle.textContent !== css) {
+            existingStyle.textContent = css;
+        }
+        return;
+    }
 
     const style = document.createElement("style");
     style.id = styleId;
@@ -1528,7 +1820,7 @@ function renderReviewPanelPopup(overlay, context, state, settings, options = {})
     const closeButton = document.createElement("button");
     closeButton.className = "qb-close";
     closeButton.type = "button";
-    closeButton.textContent = "×";
+    setButtonIcon(closeButton, "close", "关闭追溯面板");
     closeButton.addEventListener("click", () => hideHoverReviewPanel());
     header.append(titleEl, closeButton);
 
@@ -1629,7 +1921,7 @@ function createListRuleChipList(overlay, context, listRules, settings) {
         const removeButton = document.createElement("button");
         removeButton.type = "button";
         removeButton.className = "qb-chip-remove";
-        removeButton.textContent = "×";
+        setButtonIcon(removeButton, "close", "从配置中删除这条规则");
         removeButton.title = "从配置中删除这条规则";
         removeButton.addEventListener("click", (event) => {
             event.stopPropagation();
@@ -1666,7 +1958,7 @@ function createFeatureRuleRow(overlay, context, reason, settings) {
     const disableButton = document.createElement("button");
     disableButton.type = "button";
     disableButton.className = "qb-quick-btn qb-feature-disable";
-    disableButton.textContent = "关闭此规则";
+    setButtonIcon(disableButton, "shield", "关闭此规则", "关闭此规则");
     disableButton.title = "关闭对应的全局规则（影响所有视频）";
     disableButton.addEventListener("click", () => {
         disableFeatureRuleSwitch(context.settingsStore, metadata.switchKey);
@@ -1712,7 +2004,7 @@ function createWhitelistSection(context, state) {
     const upBtn = document.createElement("button");
     upBtn.type = "button";
     upBtn.className = "qb-quick-btn";
-    upBtn.textContent = "解封 UP";
+    setButtonIcon(upBtn, "userX", "解封 UP", "解封 UP");
     upBtn.disabled = !state.upUid;
     upBtn.addEventListener("click", () => {
         if (!state.upUid) {
@@ -1732,7 +2024,7 @@ function createWhitelistSection(context, state) {
     const bvBtn = document.createElement("button");
     bvBtn.type = "button";
     bvBtn.className = "qb-quick-btn";
-    bvBtn.textContent = "解封视频";
+    setButtonIcon(bvBtn, "shield", "解封视频", "解封视频");
     bvBtn.addEventListener("click", () => {
         appendWhitelistBv(context.settingsStore, state.bv);
         context.refresh({ reevaluate: true });
@@ -1841,12 +2133,12 @@ function injectReviewPanelStyles() {
 
         #${reviewPanelId} .qb-panel {
             width: 360px;
-            background: rgba(40, 40, 40, 0.9);
+            background: rgba(22, 25, 30, 0.94);
             backdrop-filter: blur(12px);
             -webkit-backdrop-filter: blur(12px);
-            color: rgb(250, 250, 250);
-            border-radius: 12px;
-            border: 1px solid rgba(255, 255, 255, 0.1);
+            color: rgb(239, 244, 248);
+            border-radius: 8px;
+            border: 1px solid rgba(255, 255, 255, 0.12);
             box-shadow: 0 10px 30px rgba(0, 0, 0, 0.4);
             display: flex;
             flex-direction: column;
@@ -1858,21 +2150,22 @@ function injectReviewPanelStyles() {
             align-items: center;
             justify-content: space-between;
             padding: 10px 14px;
-            background: rgba(30, 30, 30, 0.6);
-            border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+            background: rgba(31, 36, 43, 0.86);
+            border-bottom: 1px solid rgba(255, 255, 255, 0.08);
         }
 
         #${reviewPanelId} .qb-title { font-size: 14px; font-weight: 700; }
 
         #${reviewPanelId} .qb-close {
-            width: 24px; height: 24px; padding: 0; font-size: 16px;
+            width: 24px; height: 24px; padding: 0; font-size: 13px;
             line-height: 24px; border: 0; border-radius: 6px;
-            background: rgba(255, 255, 255, 0.1); color: rgb(220, 220, 220);
+            background: rgba(255, 255, 255, 0.08); color: rgb(222, 229, 235);
             cursor: pointer; transition: all 0.2s ease;
+            display: inline-flex; align-items: center; justify-content: center;
         }
 
         #${reviewPanelId} .qb-close:hover {
-            background: rgba(255, 60, 60, 0.8);
+            background: rgba(232, 93, 93, 0.9);
             color: white;
         }
 
@@ -1896,13 +2189,13 @@ function injectReviewPanelStyles() {
         #${reviewPanelId} .qb-video-title {
             font-size: 13px;
             font-weight: bold;
-            color: rgb(0, 174, 236);
+            color: rgb(91, 213, 237);
             line-height: 1.35;
         }
 
         #${reviewPanelId} .qb-video-bv {
             font-size: 11px;
-            color: rgb(160, 160, 160);
+            color: rgb(142, 154, 168);
         }
 
         #${reviewPanelId} .qb-divider {
@@ -1913,7 +2206,7 @@ function injectReviewPanelStyles() {
 
         #${reviewPanelId} .qb-section-title {
             font-size: 12px;
-            color: rgb(160, 160, 160);
+            color: rgb(142, 154, 168);
             margin-bottom: 6px;
         }
 
@@ -1939,9 +2232,9 @@ function injectReviewPanelStyles() {
             min-width: 0;
             box-sizing: border-box;
             border-radius: 999px;
-            background: rgba(78, 78, 78, 0.85);
+            background: rgba(255, 255, 255, 0.08);
             border: 1px solid rgba(255, 255, 255, 0.08);
-            color: rgb(250, 250, 250);
+            color: rgb(239, 244, 248);
             padding: 5px 8px 5px 12px;
             font-size: 12px;
             transition: all 0.2s ease;
@@ -1950,7 +2243,7 @@ function injectReviewPanelStyles() {
         #${reviewPanelId} .qb-chip:hover {
             transform: translateY(-1px);
             box-shadow: 0 4px 8px rgba(0, 0, 0, 0.2);
-            background: rgba(90, 90, 90, 0.95);
+            background: rgba(255, 255, 255, 0.12);
         }
 
         #${reviewPanelId} .qb-chip-label {
@@ -1968,13 +2261,16 @@ function injectReviewPanelStyles() {
             border-radius: 50%;
             background: rgba(255, 255, 255, 0.1);
             box-shadow: none;
-            color: #ddd;
+            color: rgb(216, 224, 232);
             cursor: pointer;
             flex-shrink: 0;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
         }
 
         #${reviewPanelId} .qb-chip-remove:hover {
-            background: rgba(255, 60, 60, 0.8);
+            background: rgba(232, 93, 93, 0.9);
             color: white;
             transform: scale(1.08);
         }
@@ -2017,33 +2313,34 @@ function injectReviewPanelStyles() {
         }
 
         #${reviewPanelId} .qb-feature-rule-detail {
-            color: rgb(220, 220, 220);
+            color: rgb(216, 224, 232);
             font-size: 11px;
             line-height: 1.4;
         }
 
         #${reviewPanelId} .qb-info {
-            flex: 1; min-width: 0; border: 1px solid rgba(255,255,255,0.1); border-radius: 6px;
-            background: rgba(20,20,20,0.6); color: rgb(245,245,245);
+            flex: 1; min-width: 0; border: 1px solid rgba(255,255,255,0.12); border-radius: 6px;
+            background: rgba(12,15,19,0.72); color: rgb(239,244,248);
             padding: 6px 8px; font-size: 12px; line-height: 1.35; box-sizing: border-box;
             overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
         }
 
-        #${reviewPanelId} .qb-hint { font-size: 12px; color: rgb(160,160,160); }
+        #${reviewPanelId} .qb-hint { font-size: 12px; color: rgb(142,154,168); }
 
         #${reviewPanelId} .qb-quick-btn {
             border: 0; border-radius: 6px; padding: 5px 10px; font-size: 12px;
-            background: rgba(0,174,236,0.15); color: rgb(0,174,236); cursor: pointer;
+            background: rgba(18,183,219,0.14); color: rgb(91,213,237); cursor: pointer;
             white-space: nowrap; flex-shrink: 0; transition: all 0.2s ease;
+            display: inline-flex; align-items: center; justify-content: center; gap: 5px;
         }
 
         #${reviewPanelId} .qb-feature-disable {
-            background: rgba(255,255,255,0.1);
-            color: rgb(235,235,235);
+            background: rgba(255,255,255,0.08);
+            color: rgb(216,224,232);
         }
 
         #${reviewPanelId} .qb-quick-btn:hover:not(:disabled) {
-            background: rgb(0,174,236);
+            background: rgb(18,183,219);
             color: white;
         }
 
@@ -2053,9 +2350,15 @@ function injectReviewPanelStyles() {
         }
 
         #${reviewPanelId} .qb-quick-btn:disabled {
-            background: rgba(60,60,60,0.4);
-            color: rgb(120,120,120);
+            background: rgba(62,70,80,0.45);
+            color: rgb(116,126,138);
             cursor: default;
+        }
+
+        #${reviewPanelId} .bbvt-icon {
+            width: 13px;
+            height: 13px;
+            flex: 0 0 auto;
         }
     `;
 
@@ -2427,12 +2730,15 @@ function safeRegexTest(pattern, value) {
 
 // ---- src/utils/comment-filter.js ----
 function findBlockedCommentTextMatch(text, patterns, useRegular) {
+    return findBlockedCommentTextMatches(text, patterns, useRegular)[0] || "";
+}
+function findBlockedCommentTextMatches(text, patterns, useRegular) {
     const commentText = String(text || "");
     if (!commentText || !Array.isArray(patterns) || patterns.length === 0) {
-        return "";
+        return [];
     }
 
-    return patterns.find((pattern) => {
+    return patterns.filter((pattern) => {
         const normalizedPattern = String(pattern || "").trim();
         if (!normalizedPattern) {
             return false;
@@ -2443,21 +2749,24 @@ function findBlockedCommentTextMatch(text, patterns, useRegular) {
         }
 
         return commentText.includes(normalizedPattern);
-    }) || "";
+    });
 }
 function findBlockedCommentUserMatch(commentInfo, users) {
+    return findBlockedCommentUserMatches(commentInfo, users)[0] || "";
+}
+function findBlockedCommentUserMatches(commentInfo, users) {
     if (!Array.isArray(users) || users.length === 0) {
-        return "";
+        return [];
     }
 
     const userId = normalizeToken(commentInfo?.userId);
     const userName = normalizeToken(commentInfo?.userName);
 
     if (!userId && !userName) {
-        return "";
+        return [];
     }
 
-    return users.find((user) => {
+    return users.filter((user) => {
         const normalizedUser = normalizeToken(user);
         if (!normalizedUser) {
             return false;
@@ -2472,7 +2781,7 @@ function findBlockedCommentUserMatch(commentInfo, users) {
             lowerUser === userName.toLowerCase() ||
             lowerUser === `name:${userName}`.toLowerCase()
         ));
-    }) || "";
+    });
 }
 
 function normalizeToken(value) {
@@ -2546,8 +2855,12 @@ const commentFilterFeature = {
             if (blockResult.blocked) {
                 blockedTargets.add(blockTarget);
             }
-            if (changedToBlocked && blockResult.item) {
-                statsStore?.increment(`${blockResult.type}: ${blockResult.item}`);
+            if (changedToBlocked) {
+                getCommentBlockReasons(blockResult).forEach((reason) => {
+                    if (reason.item) {
+                        statsStore?.increment(`${reason.type}: ${reason.item}`);
+                    }
+                });
             }
         });
     },
@@ -2639,31 +2952,32 @@ function isInsideBlockedCommentTarget(commentElement, blockedTargets) {
 }
 
 function getCommentBlockResult(settings, commentInfo) {
-    const matchedUser = settings.blockedCommentUser_Switch
-        ? findBlockedCommentUserMatch(commentInfo, settings.blockedCommentUser_Array)
-        : "";
+    const blockedReasons = [];
+    const matchedUsers = settings.blockedCommentUser_Switch
+        ? findBlockedCommentUserMatches(commentInfo, settings.blockedCommentUser_Array)
+        : [];
 
-    if (matchedUser) {
-        return createCommentBlockResult({
+    matchedUsers.forEach((matchedUser) => {
+        blockedReasons.push(createCommentBlockReason({
             type: blockedCommentUserType,
             item: matchedUser,
             reasonItem: formatCommentUserReason(commentInfo, matchedUser),
             configKey: "blockedCommentUser_Array",
             configValue: matchedUser,
             matchedValue: formatCommentUserReason(commentInfo, matchedUser),
-        });
-    }
+        }));
+    });
 
-    const matchedText = settings.blockedCommentText_Switch
-        ? findBlockedCommentTextMatch(
+    const matchedTexts = settings.blockedCommentText_Switch
+        ? findBlockedCommentTextMatches(
             commentInfo.text,
             settings.blockedCommentText_Array,
             settings.blockedCommentText_UseRegular
         )
-        : "";
+        : [];
 
-    if (matchedText) {
-        return createCommentBlockResult({
+    matchedTexts.forEach((matchedText) => {
+        blockedReasons.push(createCommentBlockReason({
             type: blockedCommentTextType,
             item: matchedText,
             reasonItem: matchedText,
@@ -2671,19 +2985,19 @@ function getCommentBlockResult(settings, commentInfo) {
             regularKey: "blockedCommentText_UseRegular",
             configValue: matchedText,
             matchedValue: commentInfo.text,
-        });
-    }
+        }));
+    });
 
     if (settings.blockedCommentImage_Switch && commentInfo.hasImage) {
-        return createCommentBlockResult({
+        blockedReasons.push(createCommentBlockReason({
             type: blockedCommentImageType,
             item: "带图评论",
             reasonItem: "",
             matchedValue: "带图评论",
-        });
+        }));
     }
 
-    return { blocked: false };
+    return createCommentBlockResult(blockedReasons);
 }
 
 function getCommentKey(commentInfo) {
@@ -2698,9 +3012,9 @@ function getCommentKey(commentInfo) {
     return JSON.stringify([userId, userName, text.slice(0, 240)]);
 }
 
-function createCommentBlockResult({ type, item, reasonItem, configKey = "", regularKey = "", configValue = "", matchedValue = "" }) {
+function createCommentBlockReason({ type, item, reasonItem, configKey = "", regularKey = "", configValue = "", matchedValue = "" }) {
     const reason = reasonItem ? `${type}: ${reasonItem}` : type;
-    const blockReason = {
+    return {
         id: [type, configKey, configValue, matchedValue, reason].join("\u0001"),
         type,
         item,
@@ -2711,14 +3025,22 @@ function createCommentBlockResult({ type, item, reasonItem, configKey = "", regu
         matchedValue,
         canRemoveConfig: Boolean(configKey && configValue),
     };
+}
+
+function createCommentBlockResult(blockedReasons) {
+    if (!blockedReasons.length) {
+        return { blocked: false };
+    }
+
+    const blockReason = blockedReasons[0];
 
     return {
         blocked: true,
-        type,
-        item,
-        reason,
+        type: blockReason.type,
+        item: blockReason.item,
+        reason: blockReason.displayText,
         blockReason,
-        blockedReasons: [blockReason],
+        blockedReasons,
     };
 }
 
@@ -3772,31 +4094,15 @@ function createStatsStore() {
 
 // ---- src/state/up-block-stats-store.js ----
 const upBlockStatsStorageKey = "GM_blockedUpStats";
-const MAX_COUNTED_VIDEO_KEYS = 2000;
-
-function pruneCountedVideoKeys(countedVideoKeys, ups) {
-    const keys = Object.keys(countedVideoKeys);
-    if (keys.length <= MAX_COUNTED_VIDEO_KEYS) {
-        return;
-    }
-
-    const dropCount = keys.length - MAX_COUNTED_VIDEO_KEYS;
-    for (let i = 0; i < dropCount; i++) {
-        const key = keys[i];
-        const entry = countedVideoKeys[key];
-        delete countedVideoKeys[key];
-
-        // 淘汰去重记录时同步回扣对应 UP 的计数，保证 blockedCount 始终等于
-        // 当前在册（未淘汰）的不同屏蔽视频数，避免被淘汰的 key 复活后重复累加。
-        const upUid = entry && typeof entry === "object" ? normalizeUpBlockStatsText(entry.upUid) : "";
-        if (upUid && ups[upUid]) {
-            const next = normalizeCount(ups[upUid].blockedCount) - 1;
-            ups[upUid] = { ...ups[upUid], blockedCount: Math.max(0, next) };
-        }
-    }
-}
+const upBlockStatsStorageVersion = 2;
 function createUpBlockStatsStore() {
-    const data = normalizeData(typeof GM_getValue === "function" ? GM_getValue(upBlockStatsStorageKey, null) : null);
+    const normalized = normalizeData(typeof GM_getValue === "function" ? GM_getValue(upBlockStatsStorageKey, null) : null);
+    const data = normalized.data;
+    const sessionCountedVideoKeys = new Set();
+
+    if (normalized.shouldPersist) {
+        persist(data);
+    }
 
     return {
         recordBlockedVideo(videoBv, videoInfo) {
@@ -3808,7 +4114,7 @@ function createUpBlockStatsStore() {
             }
 
             const countedKey = `${normalizedVideoBv}:${upUid}`;
-            if (data.countedVideoKeys[countedKey]) {
+            if (sessionCountedVideoKeys.has(countedKey)) {
                 return false;
             }
 
@@ -3823,7 +4129,7 @@ function createUpBlockStatsStore() {
                 updatedAt: 0,
             };
 
-            data.countedVideoKeys[countedKey] = { upUid };
+            sessionCountedVideoKeys.add(countedKey);
             data.ups[upUid] = {
                 ...previous,
                 upUid,
@@ -3834,9 +4140,6 @@ function createUpBlockStatsStore() {
                 lastVideoBv: normalizedVideoBv,
                 updatedAt: now,
             };
-            // 先计数再 prune：prune 回扣作用于已更新的 ups 状态，避免同 UP 旧 key 淘汰时
-            // 把本次 +1 覆盖掉。
-            pruneCountedVideoKeys(data.countedVideoKeys, data.ups);
 
             persist(data);
             return true;
@@ -3856,21 +4159,9 @@ function createUpBlockStatsStore() {
 
 function normalizeData(rawData) {
     const source = rawData && typeof rawData === "object" ? rawData : {};
+    const hadStoredObject = rawData && typeof rawData === "object";
     const rawUps = source.ups && typeof source.ups === "object" ? source.ups : {};
-    const rawCountedVideoKeys =
-        source.countedVideoKeys && typeof source.countedVideoKeys === "object"
-            ? source.countedVideoKeys
-            : {};
-
-    // 兼容旧版 countedVideoKeys[value=true]：key 形如 "bv:upUid"，解析出 upUid 以便 prune 回扣。
-    const countedVideoKeys = {};
-    for (const [key, value] of Object.entries(rawCountedVideoKeys)) {
-        if (!key) {
-            continue;
-        }
-        const upUid = value && typeof value === "object" ? normalizeUpBlockStatsText(value.upUid) : "";
-        countedVideoKeys[key] = { upUid: upUid || parseUpUidFromKey(key) };
-    }
+    const legacyCountsByUp = countLegacyVideoKeysByUp(source.countedVideoKeys);
 
     const ups = Object.fromEntries(
         Object.entries(rawUps)
@@ -3880,7 +4171,9 @@ function normalizeData(rawData) {
                 {
                     upUid: normalizeUpBlockStatsText(item.upUid) || upUid,
                     upName: normalizeUpBlockStatsText(item.upName),
-                    blockedCount: normalizeCount(item.blockedCount),
+                    blockedCount: hasValidCount(item.blockedCount)
+                        ? normalizeCount(item.blockedCount)
+                        : normalizeCount(legacyCountsByUp[upUid]),
                     lastReason: normalizeUpBlockStatsText(item.lastReason),
                     lastVideoTitle: normalizeUpBlockStatsText(item.lastVideoTitle),
                     lastVideoBv: normalizeUpBlockStatsText(item.lastVideoBv),
@@ -3889,22 +4182,54 @@ function normalizeData(rawData) {
             ])
     );
 
-    // 以"当前在册的、属于该 UP 的不同视频数"重算 blockedCount，
-    // 顺带修复历史数据因旧版 prune 漏回扣造成的计数虚高。
+    for (const [upUid, blockedCount] of Object.entries(legacyCountsByUp)) {
+        if (!ups[upUid]) {
+            ups[upUid] = {
+                upUid,
+                upName: "",
+                blockedCount: normalizeCount(blockedCount),
+                lastReason: "",
+                lastVideoTitle: "",
+                lastVideoBv: "",
+                updatedAt: 0,
+            };
+        }
+    }
+
+    return {
+        data: { version: upBlockStatsStorageVersion, ups },
+        shouldPersist: hadStoredObject && shouldRewriteStoredData(source),
+    };
+}
+
+function shouldRewriteStoredData(source) {
+    if (source.version !== upBlockStatsStorageVersion) {
+        return true;
+    }
+
+    return Object.keys(source).some((key) => key !== "version" && key !== "ups");
+}
+
+function countLegacyVideoKeysByUp(rawCountedVideoKeys) {
+    if (!rawCountedVideoKeys || typeof rawCountedVideoKeys !== "object") {
+        return {};
+    }
+
     const countsByUp = {};
-    for (const entry of Object.values(countedVideoKeys)) {
-        const upUid = normalizeUpBlockStatsText(entry?.upUid);
+    for (const [key, value] of Object.entries(rawCountedVideoKeys)) {
+        if (!key) {
+            continue;
+        }
+
+        const upUid = value && typeof value === "object"
+            ? normalizeUpBlockStatsText(value.upUid) || parseUpUidFromKey(key)
+            : parseUpUidFromKey(key);
         if (upUid) {
             countsByUp[upUid] = (countsByUp[upUid] || 0) + 1;
         }
     }
-    for (const [upUid, item] of Object.entries(ups)) {
-        item.blockedCount = countsByUp[upUid] != null ? countsByUp[upUid] : 0;
-    }
 
-    const result = { ups, countedVideoKeys };
-    pruneCountedVideoKeys(result.countedVideoKeys, result.ups);
-    return result;
+    return countsByUp;
 }
 
 function parseUpUidFromKey(key) {
@@ -3919,7 +4244,10 @@ function getLatestReason(videoInfo) {
 
 function persist(data) {
     if (typeof GM_setValue === "function") {
-        GM_setValue(upBlockStatsStorageKey, data);
+        GM_setValue(upBlockStatsStorageKey, {
+            version: upBlockStatsStorageVersion,
+            ups: data.ups,
+        });
     }
 }
 
@@ -3930,6 +4258,10 @@ function normalizeUpBlockStatsText(value) {
 function normalizeCount(value) {
     const number = Number(value);
     return Number.isFinite(number) ? number : 0;
+}
+
+function hasValidCount(value) {
+    return value !== undefined && value !== null && value !== "" && Number.isFinite(Number(value));
 }
 
 // ---- src/utils/log.js ----
@@ -7095,31 +7427,21 @@ function ensureCommentOverlay(commentElement, { reason, commentKey = "", reasonI
         !overlay.querySelector?.(".bbvt-comment-filter-overlay-veil") ||
         !overlay.querySelector?.(".bbvt-comment-filter-overlay-body")
     ) {
+        const detailsOpen = overlay.dataset.bbvtCommentDetailsOpen === "true";
         overlay.replaceChildren();
         const veil = document.createElement("div");
         veil.className = "bbvt-comment-filter-overlay-veil";
 
-        const body = document.createElement("div");
-        body.className = "bbvt-comment-filter-overlay-body";
-
-        const label = document.createElement("span");
-        label.className = "bbvt-comment-filter-overlay-text";
-        label.textContent = "已屏蔽评论";
-
-        if (normalizedReasonItems.length === 0) {
-            label.textContent = `已屏蔽评论：${reason}`;
-            body.append(label);
-        } else {
-            body.append(label);
-            normalizedReasonItems.forEach((item) => {
-                body.appendChild(createCommentReasonChip(item));
-            });
-        }
+        const body = createCommentOverlayBody(overlay, reason, normalizedReasonItems);
 
         overlay.append(veil, body);
+        if (detailsOpen) {
+            showCommentDetailsPanel(overlay, reason, normalizedReasonItems);
+        }
         overlay.dataset.bbvtCommentOverlaySignature = overlaySignature;
     }
 
+    overlay.style.zIndex = overlay.dataset.bbvtCommentDetailsOpen === "true" ? "30" : "20";
     syncCommentPeekDataset(commentElement, overlay);
 
     overlay.onmousemove = (event) => {
@@ -7142,6 +7464,194 @@ function normalizeCommentReasonItems(reasonItems) {
         .filter((item) => item.label);
 }
 
+function createCommentOverlayBody(overlay, reason, reasonItems) {
+    const body = document.createElement("div");
+    body.className = "bbvt-comment-filter-overlay-body";
+    body.title = createCommentOverlaySummaryTitle(reason, reasonItems);
+
+    const label = document.createElement("span");
+    label.className = "bbvt-comment-filter-overlay-text";
+    label.textContent = createCommentOverlaySummaryText(reasonItems);
+    body.appendChild(label);
+
+    const detailsButton = document.createElement("button");
+    detailsButton.type = "button";
+    detailsButton.className = "bbvt-comment-filter-details-toggle";
+    detailsButton.textContent = overlay.dataset.bbvtCommentDetailsOpen === "true" ? "收起" : "展开";
+    detailsButton.title = "查看并删除命中的评论规则";
+    stopCommentOverlayControlEvents(detailsButton);
+    detailsButton.addEventListener("click", (event) => {
+        event.preventDefault();
+        event.stopPropagation();
+        toggleCommentDetailsPanel(overlay, reason, reasonItems);
+    });
+    body.appendChild(detailsButton);
+
+    return body;
+}
+
+function createCommentOverlaySummaryText(reasonItems) {
+    if (reasonItems.length > 0) {
+        return `已屏蔽评论 · ${reasonItems.length} 条规则`;
+    }
+
+    return "已屏蔽评论";
+}
+
+function createCommentOverlaySummaryTitle(reason, reasonItems) {
+    if (reasonItems.length > 0) {
+        return reasonItems.map((item) => item.title || item.label).filter(Boolean).join("\n");
+    }
+
+    return String(reason || "已屏蔽评论");
+}
+
+function toggleCommentDetailsPanel(overlay, reason, reasonItems) {
+    if (overlay.dataset.bbvtCommentDetailsOpen === "true") {
+        hideCommentDetailsPanel(overlay);
+        return;
+    }
+
+    showCommentDetailsPanel(overlay, reason, reasonItems);
+}
+
+function showCommentDetailsPanel(overlay, reason, reasonItems) {
+    hideCommentDetailsPanel(overlay);
+    overlay.dataset.bbvtCommentDetailsOpen = "true";
+    overlay.style.zIndex = "30";
+
+    const panel = createCommentDetailsPanel(overlay, reason, reasonItems);
+    overlay.appendChild(panel);
+    positionCommentDetailsPanel(overlay, panel);
+    syncCommentDetailsToggle(overlay);
+}
+
+function hideCommentDetailsPanel(overlay) {
+    overlay.querySelector?.(".bbvt-comment-filter-details-panel")?.remove();
+    delete overlay.dataset.bbvtCommentDetailsOpen;
+    overlay.style.zIndex = "20";
+    syncCommentDetailsToggle(overlay);
+}
+
+function syncCommentDetailsToggle(overlay) {
+    const toggle = overlay.querySelector?.(".bbvt-comment-filter-details-toggle");
+    if (toggle) {
+        toggle.textContent = overlay.dataset.bbvtCommentDetailsOpen === "true" ? "收起" : "展开";
+    }
+}
+
+function createCommentDetailsPanel(overlay, reason, reasonItems) {
+    const panel = document.createElement("div");
+    panel.className = "bbvt-comment-filter-details-panel";
+    stopCommentOverlayControlEvents(panel);
+
+    const header = document.createElement("div");
+    header.className = "bbvt-comment-filter-details-header";
+
+    const title = document.createElement("span");
+    title.className = "bbvt-comment-filter-details-title";
+    title.textContent = "屏蔽原因";
+
+    const closeButton = document.createElement("button");
+    closeButton.type = "button";
+    closeButton.className = "bbvt-comment-filter-details-close";
+    closeButton.textContent = "×";
+    closeButton.title = "收起";
+    stopCommentOverlayControlEvents(closeButton);
+    closeButton.addEventListener("click", (event) => {
+        event.preventDefault();
+        event.stopPropagation();
+        hideCommentDetailsPanel(overlay);
+    });
+
+    header.append(title, closeButton);
+
+    const list = document.createElement("div");
+    list.className = "bbvt-comment-filter-details-list";
+    const items = reasonItems.length > 0
+        ? reasonItems
+        : [{ label: String(reason || "已屏蔽评论"), title: String(reason || ""), canRemove: false }];
+    items.forEach((item) => {
+        list.appendChild(createCommentReasonRow(item));
+    });
+
+    panel.append(header, list);
+    return panel;
+}
+
+function createCommentReasonRow(item) {
+    const row = document.createElement("div");
+    row.className = "bbvt-comment-filter-reason-row";
+
+    const label = document.createElement("span");
+    label.className = "bbvt-comment-filter-reason-row-label";
+    label.textContent = item.label;
+    label.title = item.title || item.label;
+    row.appendChild(label);
+
+    if (item.canRemove && typeof item.onRemove === "function") {
+        const removeButton = document.createElement("button");
+        removeButton.type = "button";
+        removeButton.className = "bbvt-comment-filter-reason-remove";
+        removeButton.textContent = "删除";
+        removeButton.title = item.removeTitle || "从配置中删除这条规则";
+        stopCommentOverlayControlEvents(removeButton);
+        removeButton.addEventListener("click", (event) => {
+            event.preventDefault();
+            event.stopPropagation();
+            item.onRemove(item);
+        });
+        row.appendChild(removeButton);
+    }
+
+    return row;
+}
+
+function positionCommentDetailsPanel(overlay, panel) {
+    const viewportWidth = window.innerWidth || 1280;
+    const viewportHeight = window.innerHeight || 800;
+    const margin = 12;
+    const gap = 6;
+    const overlayRect = overlay.getBoundingClientRect?.() || {
+        top: 0,
+        left: 0,
+        width: overlay.offsetWidth || viewportWidth,
+        height: overlay.offsetHeight || 44,
+        right: viewportWidth,
+        bottom: overlay.offsetHeight || 44,
+    };
+    const overlayWidth = overlayRect.width || overlay.offsetWidth || viewportWidth;
+    const overlayHeight = overlayRect.height || overlay.offsetHeight || 44;
+    const body = overlay.querySelector?.(".bbvt-comment-filter-overlay-body") || null;
+    const bodyRect = body?.getBoundingClientRect?.() || null;
+    const bodyLeft = bodyRect ? bodyRect.left - overlayRect.left : Math.max(8, overlayWidth - 280);
+    const bodyTop = bodyRect ? bodyRect.top - overlayRect.top : 8;
+    const bodyRight = bodyRect ? bodyRect.right - overlayRect.left : overlayWidth - 8;
+    const bodyBottom = bodyRect ? bodyRect.bottom - overlayRect.top : 38;
+    const panelWidth = Math.min(360, viewportWidth - margin * 2);
+    const viewportMinLeft = margin - (overlayRect.left || 0);
+    const viewportMaxLeft = viewportWidth - margin - (overlayRect.left || 0) - panelWidth;
+    const preferredLeft = Math.min(bodyLeft, bodyRight - panelWidth);
+    const left = clampNumber(preferredLeft, viewportMinLeft, viewportMaxLeft);
+    const spaceBelow = viewportHeight - ((overlayRect.top || 0) + bodyBottom) - margin - gap;
+    const spaceAbove = (overlayRect.top || 0) + bodyTop - margin - gap;
+    const placeBelow = spaceBelow >= 160 || spaceBelow >= spaceAbove;
+    const availableHeight = Math.max(120, placeBelow ? spaceBelow : spaceAbove);
+    const maxHeight = Math.min(340, availableHeight);
+
+    panel.style.left = `${left}px`;
+    panel.style.right = "";
+    panel.style.width = `${panelWidth}px`;
+    panel.style.maxHeight = `${maxHeight}px`;
+    if (placeBelow) {
+        panel.style.top = `${bodyBottom + gap}px`;
+        panel.style.bottom = "";
+    } else {
+        panel.style.top = "";
+        panel.style.bottom = `${Math.max(0, overlayHeight - bodyTop + gap)}px`;
+    }
+}
+
 function createCommentOverlaySignature(reason, reasonItems) {
     return JSON.stringify({
         reason: String(reason || ""),
@@ -7155,37 +7665,8 @@ function createCommentOverlaySignature(reason, reasonItems) {
     });
 }
 
-function createCommentReasonChip(item) {
-    const chip = document.createElement("span");
-    chip.className = "bbvt-comment-filter-reason-chip";
-    chip.title = item.title || item.label;
-    stopCommentOverlayControlEvents(chip);
-
-    const label = document.createElement("span");
-    label.className = "bbvt-comment-filter-reason-label";
-    label.textContent = item.label;
-    chip.appendChild(label);
-
-    if (item.canRemove && typeof item.onRemove === "function") {
-        const removeButton = document.createElement("button");
-        removeButton.type = "button";
-        removeButton.className = "bbvt-comment-filter-reason-remove";
-        removeButton.textContent = "×";
-        removeButton.title = item.removeTitle || "从配置中删除这条规则";
-        stopCommentOverlayControlEvents(removeButton);
-        removeButton.addEventListener("click", (event) => {
-            event.preventDefault();
-            event.stopPropagation();
-            item.onRemove(item);
-        });
-        chip.appendChild(removeButton);
-    }
-
-    return chip;
-}
-
 function stopCommentOverlayControlEvents(element) {
-    ["mousemove", "mousedown", "pointerdown"].forEach((eventName) => {
+    ["mousemove", "mousedown", "pointerdown", "click"].forEach((eventName) => {
         element.addEventListener(eventName, (event) => {
             event.stopPropagation();
         });
@@ -7195,13 +7676,24 @@ function stopCommentOverlayControlEvents(element) {
 function isCommentOverlayControlTarget(target, overlay) {
     let current = target;
     while (current && current !== overlay) {
-        if (current.classList?.contains?.("bbvt-comment-filter-overlay-body")) {
+        if (
+            current.classList?.contains?.("bbvt-comment-filter-overlay-body") ||
+            current.classList?.contains?.("bbvt-comment-filter-details-panel")
+        ) {
             return true;
         }
         current = current.parentNode;
     }
 
     return false;
+}
+
+function clampNumber(value, min, max) {
+    if (max < min) {
+        return min;
+    }
+
+    return Math.max(min, Math.min(value, max));
 }
 
 function ensureCommentOverlayParent(parent) {
@@ -7393,14 +7885,14 @@ function injectCommentFilterStyles(commentElement) {
             color: rgb(245, 245, 245);
             font-size: 12px;
             line-height: 1.45;
-            overflow: hidden;
+            overflow: visible;
         }
 
         .bbvt-comment-filter-overlay-veil {
             position: absolute;
             inset: 0;
             box-sizing: border-box;
-            border: 1px solid rgba(0, 174, 236, 0.28);
+            border: 1px solid rgba(18, 183, 219, 0.3);
             border-radius: 8px;
             background: rgba(28, 32, 36, 0.88);
             box-shadow: 0 8px 24px rgba(0, 0, 0, 0.16);
@@ -7420,15 +7912,14 @@ function injectCommentFilterStyles(commentElement) {
             top: 8px;
             right: 8px;
             z-index: 1;
-            display: flex;
+            display: inline-flex;
             align-items: center;
             justify-content: flex-end;
-            flex-wrap: wrap;
             gap: 6px;
-            max-width: calc(100% - 16px);
+            max-width: min(280px, calc(100% - 16px));
             box-sizing: border-box;
             padding: 5px 7px;
-            border: 1px solid rgba(0, 174, 236, 0.32);
+            border: 1px solid rgba(18, 183, 219, 0.32);
             border-radius: 7px;
             background: rgba(25, 29, 34, 0.9);
             box-shadow: 0 6px 18px rgba(0, 0, 0, 0.18);
@@ -7438,51 +7929,127 @@ function injectCommentFilterStyles(commentElement) {
 
         .bbvt-comment-filter-overlay-text {
             min-width: 0;
+            flex: 1 1 auto;
             overflow: hidden;
             text-overflow: ellipsis;
             white-space: nowrap;
             color: rgba(245, 245, 245, 0.92);
         }
 
-        .bbvt-comment-filter-reason-chip {
-            display: inline-flex;
-            align-items: center;
-            gap: 6px;
-            min-width: 0;
-            max-width: min(520px, 100%);
-            padding: 3px 6px 3px 8px;
-            border: 1px solid rgba(0, 174, 236, 0.36);
-            border-radius: 999px;
-            background: rgba(0, 174, 236, 0.18);
+        .bbvt-comment-filter-details-toggle {
+            flex: 0 0 auto;
+            border: 0;
+            border-radius: 5px;
+            padding: 2px 6px;
+            background: rgba(18, 183, 219, 0.24);
             color: rgb(255, 255, 255);
+            font-size: 12px;
+            line-height: 1.4;
+            cursor: pointer;
         }
 
-        .bbvt-comment-filter-reason-label {
+        .bbvt-comment-filter-details-toggle:hover {
+            background: rgba(18, 183, 219, 0.72);
+        }
+
+        .bbvt-comment-filter-details-panel {
+            position: absolute;
+            z-index: 3;
+            box-sizing: border-box;
+            max-width: calc(100vw - 24px);
+            max-height: min(340px, calc(100vh - 24px));
+            display: flex;
+            flex-direction: column;
+            overflow: hidden;
+            border: 1px solid rgba(18, 183, 219, 0.36);
+            border-radius: 8px;
+            background: rgba(25, 29, 34, 0.96);
+            color: rgb(245, 245, 245);
+            box-shadow: 0 14px 36px rgba(0, 0, 0, 0.28);
+            backdrop-filter: blur(8px);
+            -webkit-backdrop-filter: blur(8px);
+        }
+
+        .bbvt-comment-filter-details-header {
+            flex: 0 0 auto;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 10px;
+            padding: 9px 10px;
+            border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+        }
+
+        .bbvt-comment-filter-details-title {
             min-width: 0;
             overflow: hidden;
             text-overflow: ellipsis;
             white-space: nowrap;
+            font-weight: 700;
+        }
+
+        .bbvt-comment-filter-details-close {
+            width: 24px;
+            height: 24px;
+            flex: 0 0 auto;
+            padding: 0;
+            border: 0;
+            border-radius: 6px;
+            background: rgba(255, 255, 255, 0.1);
+            color: rgb(245, 245, 245);
+            font-size: 17px;
+            line-height: 24px;
+            cursor: pointer;
+        }
+
+        .bbvt-comment-filter-details-close:hover {
+            background: rgba(18, 183, 219, 0.72);
+        }
+
+        .bbvt-comment-filter-details-list {
+            min-height: 0;
+            overflow-y: auto;
+            padding: 8px;
+            display: flex;
+            flex-direction: column;
+            gap: 7px;
+        }
+
+        .bbvt-comment-filter-reason-row {
+            display: grid;
+            grid-template-columns: minmax(0, 1fr) auto;
+            align-items: start;
+            gap: 8px;
+            padding: 7px 8px;
+            border: 1px solid rgba(255, 255, 255, 0.08);
+            border-radius: 7px;
+            background: rgba(255, 255, 255, 0.06);
+        }
+
+        .bbvt-comment-filter-reason-row-label {
+            min-width: 0;
+            color: rgba(245, 245, 245, 0.95);
+            line-height: 1.45;
+            overflow-wrap: anywhere;
         }
 
         .bbvt-comment-filter-reason-remove {
-            width: 16px;
-            height: 16px;
             flex: 0 0 auto;
             display: inline-flex;
             align-items: center;
             justify-content: center;
-            padding: 0;
+            padding: 4px 8px;
             border: 0;
-            border-radius: 50%;
-            background: rgba(255, 255, 255, 0.22);
+            border-radius: 6px;
+            background: rgba(255, 255, 255, 0.13);
             color: rgb(255, 255, 255);
-            font-size: 13px;
+            font-size: 12px;
             line-height: 1;
             cursor: pointer;
         }
 
         .bbvt-comment-filter-reason-remove:hover {
-            background: rgba(0, 174, 236, 0.82);
+            background: rgba(18, 183, 219, 0.82);
         }
     `;
 
@@ -7854,6 +8421,7 @@ function renderStats(overlay, context) {
 
     const header = createStatsPanelEl("div", "sp-header");
     const closeBtn = createStatsPanelEl("button", "sp-close", "×");
+    setButtonIcon(closeBtn, "close", "关闭统计面板");
     closeBtn.addEventListener("click", () => overlay.remove());
     header.append(createStatsPanelEl("span", "sp-title", "屏蔽统计"), closeBtn);
 
@@ -7884,11 +8452,13 @@ function renderStats(overlay, context) {
 
     const actions = createStatsPanelEl("div", "sp-actions");
     const clearBtn = createStatsPanelEl("button", "sp-btn", "清除数据");
+    setButtonIcon(clearBtn, "trash", "清除统计数据", "清除数据");
     clearBtn.addEventListener("click", () => {
         context.statsStore.clear();
         renderStats(overlay, context);
     });
     const closeBtn2 = createStatsPanelEl("button", "sp-btn-primary", "关闭");
+    setButtonIcon(closeBtn2, "close", "关闭统计面板", "关闭");
     closeBtn2.addEventListener("click", () => overlay.remove());
     actions.append(clearBtn, closeBtn2);
 
@@ -7962,9 +8532,10 @@ function injectStatsStyles() {
         #${statsPanelId} .sp-panel {
             width: min(560px, calc(100vw - 32px));
             max-height: min(700px, calc(100vh - 32px));
-            background: rgba(40, 40, 40, 0.9);
-            color: rgb(250,250,250);
-            border-radius: 12px;
+            background: rgba(22, 25, 30, 0.96);
+            color: rgb(239,244,248);
+            border-radius: 8px;
+            border: 1px solid rgba(255,255,255,0.12);
             box-shadow: 0 20px 40px rgba(0,0,0,0.5);
             display: flex;
             flex-direction: column;
@@ -7982,22 +8553,24 @@ function injectStatsStyles() {
             align-items: center;
             justify-content: space-between;
             padding: 14px 18px;
-            background: rgba(30,30,30,0.6);
+            background: rgba(31,36,43,0.86);
+            border-bottom: 1px solid rgba(255,255,255,0.08);
         }
 
         #${statsPanelId} .sp-title { font-size: 16px; font-weight: 700; }
 
         #${statsPanelId} .sp-close {
-            width: 32px; height: 32px; padding: 0; font-size: 20px;
+            width: 32px; height: 32px; padding: 0; font-size: 13px;
             line-height: 32px; border: 0; border-radius: 8px;
-            background: rgb(0,174,236); color: white; cursor: pointer;
+            background: rgba(255,255,255,0.08); color: rgb(215,222,229); cursor: pointer;
             transition: all 0.2s ease;
+            display: inline-flex; align-items: center; justify-content: center;
         }
 
         #${statsPanelId} .sp-close:hover {
-            background: rgb(0,190,255);
+            background: rgba(232,93,93,0.92);
             transform: translateY(-1px);
-            box-shadow: 0 4px 12px rgba(0,174,236,0.3);
+            box-shadow: 0 4px 12px rgba(232,93,93,0.26);
         }
 
         #${statsPanelId} .sp-body {
@@ -8006,28 +8579,28 @@ function injectStatsStyles() {
         }
 
         #${statsPanelId} .sp-total {
-            font-size: 13px; color: rgb(170,230,255);
+            font-size: 13px; color: rgb(91,213,237);
             padding-bottom: 10px; border-bottom: 1px solid rgba(255,255,255,0.08);
         }
 
-        #${statsPanelId} .sp-empty { color: rgb(160,160,160); font-size: 13px; }
+        #${statsPanelId} .sp-empty { color: rgb(142,154,168); font-size: 13px; }
 
         #${statsPanelId} .sp-section { display: flex; flex-direction: column; gap: 6px; }
 
         #${statsPanelId} .sp-section-title {
             font-size: 13px; font-weight: 600;
-            color: rgb(190,190,190); margin-bottom: 4px;
+            color: rgb(188,198,208); margin-bottom: 4px;
         }
 
         #${statsPanelId} .sp-row {
             display: flex; align-items: center; justify-content: space-between;
             padding: 8px 12px; border-radius: 6px;
-            background: rgba(56,56,56,0.6); font-size: 13px;
+            background: rgba(255,255,255,0.06); font-size: 13px;
             transition: background 0.2s ease;
         }
 
         #${statsPanelId} .sp-row:hover {
-            background: rgba(65,65,65,0.8);
+            background: rgba(255,255,255,0.1);
         }
 
         #${statsPanelId} .sp-label {
@@ -8035,30 +8608,38 @@ function injectStatsStyles() {
         }
 
         #${statsPanelId} .sp-badge {
-            background: rgb(0,174,236); color: white; border-radius: 999px;
+            background: rgb(18,183,219); color: white; border-radius: 999px;
             padding: 2px 10px; font-size: 12px; margin-left: 10px; flex-shrink: 0;
             box-shadow: 0 2px 4px rgba(0,0,0,0.2);
         }
 
         #${statsPanelId} .sp-actions {
             display: flex; justify-content: flex-end; gap: 10px;
-            padding: 14px 18px; background: rgba(30,30,30,0.6);
+            padding: 14px 18px; background: rgba(31,36,43,0.86);
+            border-top: 1px solid rgba(255,255,255,0.08);
         }
 
         #${statsPanelId} .sp-btn,
         #${statsPanelId} .sp-btn-primary {
             border: 0; border-radius: 8px; padding: 7px 16px;
             font-size: 13px; cursor: pointer; transition: all 0.2s ease;
+            display: inline-flex; align-items: center; justify-content: center; gap: 6px;
         }
 
-        #${statsPanelId} .sp-btn-primary { background: rgb(0,174,236); color: white; }
+        #${statsPanelId} .sp-btn-primary { background: rgb(18,183,219); color: white; }
         #${statsPanelId} .sp-btn-primary:hover {
-            background: rgb(0,190,255); transform: translateY(-1px); box-shadow: 0 4px 12px rgba(0,174,236,0.3);
+            background: rgb(33,202,238); transform: translateY(-1px); box-shadow: 0 4px 12px rgba(18,183,219,0.28);
         }
 
-        #${statsPanelId} .sp-btn { background: rgba(80,80,80,0.8); color: rgb(235,235,235); }
+        #${statsPanelId} .sp-btn { background: rgba(255,255,255,0.08); color: rgb(215,222,229); }
         #${statsPanelId} .sp-btn:hover {
-            background: rgba(100,100,100,0.9); transform: translateY(-1px); box-shadow: 0 2px 8px rgba(0,0,0,0.2);
+            background: rgba(232,93,93,0.9); color: white; transform: translateY(-1px); box-shadow: 0 2px 8px rgba(232,93,93,0.22);
+        }
+
+        #${statsPanelId} .bbvt-icon {
+            width: 14px;
+            height: 14px;
+            flex: 0 0 auto;
         }
     `;
 
@@ -8079,6 +8660,9 @@ function injectStatsStyles() {
 // 不负责：
 // - 不执行屏蔽流程。
 // - 不写具体屏蔽规则。
+
+
+
 const menuId = "blockedMenuUi";
 
 const arrayKeyToStatsType = {
@@ -8095,8 +8679,8 @@ const arrayKeyToStatsType = {
     blockedTrendingItem_Array: "按关键词屏蔽热搜项",
 };
 
-const countedChipColor = "rgba(0, 174, 236, 0.25)";
-const chipHeatColors = [null, "rgba(0, 174, 236, 0.4)", "rgba(0, 174, 236, 0.55)", "rgba(0, 174, 236, 0.7)", "rgba(0, 174, 236, 0.85)", "rgb(0, 174, 236)"];
+const countedChipColor = "rgba(18, 183, 219, 0.25)";
+const chipHeatColors = [null, "rgba(18, 183, 219, 0.4)", "rgba(18, 183, 219, 0.55)", "rgba(18, 183, 219, 0.7)", "rgba(18, 183, 219, 0.85)", "rgb(18, 183, 219)"];
 const upSuggestionMinBlockedCount = 5;
 
 function computeChipHeatLevel(count, total) {
@@ -8489,6 +9073,7 @@ function renderHeader(panel, context, state, status) {
     const title = createElement("div", "bbvt-title", "Bilibili 屏蔽参数面板");
     const subtitle = createElement("div", "bbvt-subtitle", "分组编辑配置，保存后立即生效");
     const closeButton = createElement("button", "bbvt-close", "×");
+    setButtonIcon(closeButton, "close", "保存并关闭");
 
     closeButton.type = "button";
     closeButton.addEventListener("click", () => {
@@ -9028,12 +9613,18 @@ function applyImmediateSetting(context, state) {
 
 function renderActions(panel, context, state, status) {
     const actions = createElement("div", "bbvt-actions");
-    const reloadButton = createElement("button", "", "读取");
-    const saveButton = createElement("button", "", "保存");
-    const importButton = createElement("button", "", "导入");
-    const exportButton = createElement("button", "", "导出");
-    const overlayButton = createElement("button", "", "切换叠加层");
-    const jsonButton = createElement("button", "", "JSON");
+    const reloadButton = createElement("button", "bbvt-action-button");
+    const saveButton = createElement("button", "bbvt-action-button bbvt-action-primary");
+    const importButton = createElement("button", "bbvt-action-button");
+    const exportButton = createElement("button", "bbvt-action-button");
+    const overlayButton = createElement("button", "bbvt-action-button");
+    const jsonButton = createElement("button", "bbvt-action-button");
+    setButtonIcon(reloadButton, "refresh", "重新读取当前配置", "读取");
+    setButtonIcon(saveButton, "save", "保存配置", "保存");
+    setButtonIcon(importButton, "upload", "导入配置", "导入");
+    setButtonIcon(exportButton, "download", "导出配置", "导出");
+    setButtonIcon(overlayButton, "eye", "切换已屏蔽叠加层显示", "叠加层");
+    setButtonIcon(jsonButton, "code", "打开 JSON 编辑器", "JSON");
 
     reloadButton.type = "button";
     saveButton.type = "button";
@@ -9069,7 +9660,8 @@ function renderActions(panel, context, state, status) {
         openJsonEditor(context, panel, state);
     });
 
-    const statsButton = createElement("button", "", "统计");
+    const statsButton = createElement("button", "bbvt-action-button");
+    setButtonIcon(statsButton, "chart", "打开屏蔽统计", "统计");
     statsButton.type = "button";
     statsButton.addEventListener("click", () => context.openStatsPanel?.());
 
@@ -9272,6 +9864,15 @@ function deepCloneMenu(value) {
 function injectMenuStyles() {
     const css = `
         #${menuId} {
+            --bbvt-surface: rgba(22, 25, 30, 0.94);
+            --bbvt-surface-strong: rgba(31, 36, 43, 0.9);
+            --bbvt-surface-soft: rgba(255, 255, 255, 0.06);
+            --bbvt-border: rgba(255, 255, 255, 0.1);
+            --bbvt-text: rgb(239, 244, 248);
+            --bbvt-muted: rgb(169, 179, 191);
+            --bbvt-primary: rgb(18, 183, 219);
+            --bbvt-primary-hover: rgb(33, 202, 238);
+            --bbvt-danger: rgb(232, 93, 93);
             position: fixed;
             z-index: 2147483647;
             font-family: -apple-system, BlinkMacSystemFont, "Helvetica Neue", Helvetica, Arial, "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", sans-serif;
@@ -9304,13 +9905,13 @@ function injectMenuStyles() {
         #${menuId} .bbvt-panel {
             width: 100%;
             height: 100%;
-            background: rgba(40, 40, 40, 0.85);
+            background: var(--bbvt-surface);
             backdrop-filter: blur(16px);
             -webkit-backdrop-filter: blur(16px);
-            color: rgb(250, 250, 250);
-            border-radius: 12px;
-            border: 1px solid rgba(255, 255, 255, 0.12);
-            box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 20px 25px -5px rgba(0, 0, 0, 0.4);
+            color: var(--bbvt-text);
+            border-radius: 8px;
+            border: 1px solid var(--bbvt-border);
+            box-shadow: 0 6px 12px rgba(0, 0, 0, 0.16), 0 22px 38px rgba(0, 0, 0, 0.38);
             display: flex;
             flex-direction: column;
             overflow: hidden;
@@ -9322,7 +9923,8 @@ function injectMenuStyles() {
             align-items: center;
             gap: 8px;
             padding: 14px 18px;
-            background: rgba(30, 30, 30, 0.6);
+            background: var(--bbvt-surface-strong);
+            border-bottom: 1px solid var(--bbvt-border);
             justify-content: space-between;
             cursor: move;
             user-select: none;
@@ -9336,7 +9938,7 @@ function injectMenuStyles() {
             gap: 10px;
             height: 12px;
             padding: 0 18px;
-            background: rgba(30, 30, 30, 0.4);
+            background: rgba(17, 20, 24, 0.52);
             overflow: hidden;
             transition: all 0.3s cubic-bezier(0.34, 1.56, 0.64, 1);
             position: relative;
@@ -9351,7 +9953,7 @@ function injectMenuStyles() {
             transform: translateX(-50%);
             width: 40px;
             height: 4px;
-            background: rgba(255, 255, 255, 0.2);
+            background: rgba(255, 255, 255, 0.22);
             border-radius: 2px;
             transition: opacity 0.2s ease;
         }
@@ -9359,7 +9961,7 @@ function injectMenuStyles() {
         #${menuId} .bbvt-actions:hover {
             height: 48px;
             padding: 0 18px;
-            background: rgba(30, 30, 30, 0.8);
+            background: var(--bbvt-surface-strong);
         }
 
         #${menuId} .bbvt-actions:hover::before {
@@ -9373,10 +9975,14 @@ function injectMenuStyles() {
             padding: 4px 12px;
             font-size: 12px;
             border-radius: 999px;
-            background: rgba(80, 80, 80, 0.4);
-            color: rgba(255, 255, 255, 0.7);
-            border: 1px solid rgba(255, 255, 255, 0.05);
+            background: rgba(255, 255, 255, 0.08);
+            color: rgb(216, 224, 232);
+            border: 1px solid rgba(255, 255, 255, 0.08);
             box-shadow: none;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            gap: 6px;
         }
 
         #${menuId} .bbvt-actions:hover button {
@@ -9385,10 +9991,16 @@ function injectMenuStyles() {
         }
 
         #${menuId} .bbvt-actions button:hover {
-            background: rgb(0, 174, 236);
+            background: var(--bbvt-primary);
             color: white;
             border-color: transparent;
-            box-shadow: 0 4px 12px rgba(0, 174, 236, 0.4);
+            box-shadow: 0 4px 12px rgba(18, 183, 219, 0.32);
+        }
+
+        #${menuId} .bbvt-actions .bbvt-action-primary {
+            background: rgba(18, 183, 219, 0.22);
+            color: rgb(125, 224, 242);
+            border-color: rgba(18, 183, 219, 0.22);
         }
 
         #${menuId} .bbvt-title {
@@ -9399,14 +10011,14 @@ function injectMenuStyles() {
         #${menuId} .bbvt-subtitle {
             margin-top: 4px;
             font-size: 12px;
-            color: rgb(190, 190, 190);
+            color: var(--bbvt-muted);
         }
 
         #${menuId} .bbvt-close,
         #${menuId} button {
             border: 0;
             border-radius: 8px;
-            background: rgb(0, 174, 236);
+            background: var(--bbvt-primary);
             color: white;
             padding: 7px 14px;
             cursor: pointer;
@@ -9414,9 +10026,9 @@ function injectMenuStyles() {
         }
 
         #${menuId} button:hover {
-            background: rgb(0, 190, 255);
+            background: var(--bbvt-primary-hover);
             transform: translateY(-1px);
-            box-shadow: 0 4px 12px rgba(0, 174, 236, 0.3);
+            box-shadow: 0 4px 12px rgba(18, 183, 219, 0.28);
         }
 
         #${menuId} button:active {
@@ -9427,20 +10039,31 @@ function injectMenuStyles() {
             width: 32px;
             height: 32px;
             padding: 0;
-            font-size: 20px;
+            font-size: 14px;
             line-height: 32px;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            background: rgba(255, 255, 255, 0.08);
+            color: rgb(216, 224, 232);
+        }
+
+        #${menuId} .bbvt-close:hover {
+            background: var(--bbvt-danger);
+            box-shadow: 0 4px 12px rgba(232, 93, 93, 0.28);
         }
 
         #${menuId} .bbvt-more-toggle {
             align-self: flex-start;
             margin: 14px 18px 0;
-            background: rgba(82, 82, 82, 0.8);
+            background: rgba(255, 255, 255, 0.08);
+            color: rgb(216, 224, 232);
             box-shadow: none;
             flex: 0 0 auto;
         }
 
         #${menuId} .bbvt-more-toggle:hover {
-            background: rgba(100, 100, 100, 0.9);
+            background: rgba(255, 255, 255, 0.14);
             box-shadow: 0 2px 8px rgba(0, 0, 0, 0.2);
         }
 
@@ -9462,9 +10085,9 @@ function injectMenuStyles() {
         }
 
         #${menuId} .bbvt-section {
-            border: 1px solid rgba(255, 255, 255, 0.08);
-            border-radius: 10px;
-            background: rgba(56, 56, 56, 0.4);
+            border: 1px solid var(--bbvt-border);
+            border-radius: 8px;
+            background: var(--bbvt-surface-soft);
             padding: 14px;
             transition: background 0.2s ease;
         }
@@ -9474,7 +10097,7 @@ function injectMenuStyles() {
         }
 
         #${menuId} .bbvt-section:hover {
-            background: rgba(60, 60, 60, 0.5);
+            background: rgba(255, 255, 255, 0.09);
         }
 
         #${menuId} .bbvt-section-title {
@@ -9494,9 +10117,9 @@ function injectMenuStyles() {
         }
 
         #${menuId} .bbvt-advanced-group {
-            border: 1px solid rgba(255, 255, 255, 0.08);
-            border-radius: 10px;
-            background: rgba(56, 56, 56, 0.4);
+            border: 1px solid var(--bbvt-border);
+            border-radius: 8px;
+            background: var(--bbvt-surface-soft);
             overflow: hidden;
             flex: 0 0 auto;
             min-width: 0;
@@ -9523,7 +10146,7 @@ function injectMenuStyles() {
 
         #${menuId} .bbvt-advanced-summary::before {
             content: "›";
-            color: rgb(190, 190, 190);
+            color: var(--bbvt-muted);
             font-size: 18px;
             line-height: 1;
             transition: transform 0.2s ease;
@@ -9541,7 +10164,7 @@ function injectMenuStyles() {
         }
 
         #${menuId} .bbvt-advanced-summary-meta {
-            color: rgb(170, 230, 255);
+            color: rgb(125, 224, 242);
             font-size: 12px;
             white-space: nowrap;
         }
@@ -9572,7 +10195,7 @@ function injectMenuStyles() {
         }
 
         #${menuId} .bbvt-feature-switch-meta {
-            color: rgb(180, 180, 180);
+            color: var(--bbvt-muted);
             font-size: 12px;
             white-space: nowrap;
         }
@@ -9624,31 +10247,31 @@ function injectMenuStyles() {
             align-items: center;
             gap: 6px;
             padding: 6px 10px;
-            border: 1px solid rgba(255, 255, 255, 0.12);
+            border: 1px solid var(--bbvt-border);
             border-radius: 8px;
-            background: rgba(30, 30, 30, 0.6);
+            background: rgba(12, 15, 19, 0.62);
             cursor: pointer;
             user-select: none;
             font-size: 12px;
         }
 
         #${menuId} .bbvt-choice-option:has(input:checked) {
-            border-color: rgba(0, 174, 236, 0.8);
-            background: rgba(0, 174, 236, 0.12);
-            color: rgb(0, 174, 236);
+            border-color: rgba(18, 183, 219, 0.75);
+            background: rgba(18, 183, 219, 0.14);
+            color: rgb(125, 224, 242);
         }
 
         #${menuId} .bbvt-choice-hint {
             font-size: 11px;
             line-height: 1.45;
-            color: rgb(160, 160, 160);
+            color: var(--bbvt-muted);
         }
 
         #${menuId} .bbvt-switch {
             position: relative;
             width: 36px;
             height: 20px;
-            background: rgb(80, 80, 80);
+            background: rgb(85, 96, 108);
             border-radius: 10px;
             transition: background 0.3s ease;
         }
@@ -9667,7 +10290,7 @@ function injectMenuStyles() {
         }
 
         #${menuId} .bbvt-checkbox-label input[type="checkbox"]:checked + .bbvt-switch {
-            background: rgb(0, 174, 236);
+            background: var(--bbvt-primary);
         }
 
         #${menuId} .bbvt-checkbox-label input[type="checkbox"]:checked + .bbvt-switch::after {
@@ -9676,10 +10299,10 @@ function injectMenuStyles() {
 
         #${menuId} .bbvt-text-input,
         #${menuId} .bbvt-number-input {
-            border: 1px solid rgba(255, 255, 255, 0.15);
+            border: 1px solid rgba(255, 255, 255, 0.14);
             border-radius: 8px;
-            background: rgba(0, 0, 0, 0.2);
-            color: rgb(245, 245, 245);
+            background: rgba(12, 15, 19, 0.62);
+            color: var(--bbvt-text);
             padding: 8px 10px;
             outline: none;
             box-sizing: border-box;
@@ -9688,8 +10311,8 @@ function injectMenuStyles() {
 
         #${menuId} .bbvt-text-input:focus,
         #${menuId} .bbvt-number-input:focus {
-            border-color: rgb(0, 174, 236);
-            box-shadow: 0 0 0 2px rgba(0, 174, 236, 0.2);
+            border-color: var(--bbvt-primary);
+            box-shadow: 0 0 0 2px rgba(18, 183, 219, 0.18);
         }
 
         #${menuId} .bbvt-text-input {
@@ -9717,9 +10340,9 @@ function injectMenuStyles() {
             min-width: 0;
             box-sizing: border-box;
             border-radius: 999px;
-            background: rgba(78, 78, 78, 0.8);
-            border: 1px solid rgba(255, 255, 255, 0.05);
-            color: rgb(250, 250, 250);
+            background: rgba(255, 255, 255, 0.08);
+            border: 1px solid rgba(255, 255, 255, 0.08);
+            color: var(--bbvt-text);
             padding: 5px 8px 5px 12px;
             font-size: 12px;
             transition: all 0.2s ease;
@@ -9728,7 +10351,7 @@ function injectMenuStyles() {
         #${menuId} .bbvt-chip:hover {
             transform: translateY(-1px);
             box-shadow: 0 4px 8px rgba(0,0,0,0.2);
-            background: rgba(90, 90, 90, 0.9);
+            background: rgba(255, 255, 255, 0.12);
         }
 
         #${menuId} .bbvt-chip span {
@@ -9745,11 +10368,11 @@ function injectMenuStyles() {
             border-radius: 50%;
             background: rgba(255, 255, 255, 0.1);
             box-shadow: none;
-            color: #ddd;
+            color: rgb(216, 224, 232);
         }
 
         #${menuId} .bbvt-chip-remove:hover {
-            background: rgba(255, 60, 60, 0.8);
+            background: var(--bbvt-danger);
             color: white;
             transform: scale(1.1);
         }
@@ -9767,7 +10390,7 @@ function injectMenuStyles() {
             align-items: center;
             justify-content: space-between;
             gap: 8px;
-            color: rgb(190, 190, 190);
+            color: var(--bbvt-muted);
             font-size: 12px;
             font-weight: 600;
             cursor: pointer;
@@ -9792,7 +10415,7 @@ function injectMenuStyles() {
 
         #${menuId} .bbvt-up-suggestions-meta {
             margin-left: auto;
-            color: rgb(170, 230, 255);
+            color: rgb(125, 224, 242);
             font-size: 11px;
             font-weight: 500;
         }
@@ -9809,13 +10432,13 @@ function injectMenuStyles() {
             align-items: center;
             gap: 8px;
             border-radius: 8px;
-            background: rgba(50, 50, 50, 0.6);
+            background: rgba(255, 255, 255, 0.06);
             padding: 10px 12px;
             transition: background 0.2s ease;
         }
 
         #${menuId} .bbvt-up-suggestion-row:hover {
-            background: rgba(60, 60, 60, 0.8);
+            background: rgba(255, 255, 255, 0.1);
         }
 
         #${menuId} .bbvt-up-suggestion-main {
@@ -9837,12 +10460,12 @@ function injectMenuStyles() {
 
         #${menuId} .bbvt-up-suggestion-uid,
         #${menuId} .bbvt-up-suggestion-count {
-            color: rgb(200, 200, 200);
+            color: var(--bbvt-muted);
             font-size: 12px;
         }
 
         #${menuId} .bbvt-up-suggestion-count {
-            color: rgb(170, 230, 255);
+            color: rgb(125, 224, 242);
         }
 
         #${menuId} .bbvt-up-suggestion-actions {
@@ -9859,12 +10482,12 @@ function injectMenuStyles() {
         }
 
         #${menuId} .bbvt-up-suggestion-btn-secondary {
-            background: rgba(255, 255, 255, 0.1);
-            color: rgb(235, 235, 235);
+            background: rgba(255, 255, 255, 0.08);
+            color: rgb(216, 224, 232);
         }
 
         #${menuId} .bbvt-up-suggestion-btn-secondary:hover {
-            background: rgba(255, 255, 255, 0.2);
+            background: rgba(255, 255, 255, 0.14);
             box-shadow: 0 2px 6px rgba(0,0,0,0.2);
         }
 
@@ -9891,7 +10514,7 @@ function injectMenuStyles() {
 
         #${menuId} .bbvt-empty,
         #${menuId} .bbvt-unit {
-            color: rgb(180, 180, 180);
+            color: var(--bbvt-muted);
             font-size: 12px;
         }
 
@@ -9902,14 +10525,15 @@ function injectMenuStyles() {
         #${menuId} .bbvt-status {
             min-height: 20px;
             padding: 10px 18px;
-            background: rgba(30, 30, 30, 0.6);
-            color: rgb(170, 230, 255);
+            background: var(--bbvt-surface-strong);
+            color: rgb(125, 224, 242);
             font-size: 12px;
             flex: 0 0 auto;
+            border-top: 1px solid var(--bbvt-border);
         }
 
         #${menuId} .bbvt-status.bbvt-error {
-            color: rgb(255, 150, 150);
+            color: rgb(255, 169, 169);
         }
 
         #${menuId} .bbvt-json-dialog {
@@ -9921,15 +10545,16 @@ function injectMenuStyles() {
             display: flex;
             align-items: center;
             justify-content: center;
-            border-radius: 12px;
+            border-radius: 8px;
             animation: bbvtFadeIn 0.2s ease-out forwards;
         }
 
         #${menuId} .bbvt-json-box {
             width: min(900px, calc(100vw - 72px));
             height: min(680px, calc(100vh - 72px));
-            background: rgba(40, 40, 40, 0.9);
-            border-radius: 12px;
+            background: var(--bbvt-surface);
+            border: 1px solid var(--bbvt-border);
+            border-radius: 8px;
             overflow: hidden;
             display: flex;
             flex-direction: column;
@@ -9941,8 +10566,8 @@ function injectMenuStyles() {
             resize: none;
             border: 0;
             outline: 0;
-            background: rgba(20, 20, 20, 0.8);
-            color: rgb(235, 235, 235);
+            background: rgba(12, 15, 19, 0.76);
+            color: var(--bbvt-text);
             padding: 16px;
             font-family: Consolas, "Courier New", monospace;
             font-size: 13px;
@@ -9950,7 +10575,7 @@ function injectMenuStyles() {
         }
 
         #${menuId} .bbvt-json-textarea.bbvt-json-error {
-            outline: 2px solid rgb(255, 120, 120);
+            outline: 2px solid var(--bbvt-danger);
         }
 
         #${menuId} .bbvt-json-actions {
@@ -9958,7 +10583,18 @@ function injectMenuStyles() {
             justify-content: flex-end;
             gap: 10px;
             padding: 14px;
-            background: rgba(30, 30, 30, 0.8);
+            background: var(--bbvt-surface-strong);
+            border-top: 1px solid var(--bbvt-border);
+        }
+
+        #${menuId} .bbvt-icon {
+            width: 14px;
+            height: 14px;
+            flex: 0 0 auto;
+        }
+
+        #${menuId} .bbvt-icon-label {
+            line-height: 1;
         }
 
         #${menuId} .bbvt-resizer {
@@ -10186,8 +10822,8 @@ function createFloatingEntryController(context) {
         settingsBtn.className = "bbvt-fe-settings";
         settingsBtn.type = "button";
         settingsBtn.title = "打开 Bilibili 屏蔽参数面板";
-        settingsBtn.textContent = "设";
         settingsBtn.setAttribute("aria-label", "打开设置");
+        setButtonIcon(settingsBtn, "settings", "打开设置");
 
         mainBtn = document.createElement("button");
         mainBtn.className = "bbvt-fe-main";
@@ -10203,7 +10839,7 @@ function createFloatingEntryController(context) {
         closeBtn.className = "bbvt-fe-close";
         closeBtn.type = "button";
         closeBtn.title = "隐藏浮窗，可在设置面板恢复";
-        closeBtn.textContent = "×";
+        setButtonIcon(closeBtn, "close", "隐藏浮窗");
         closeBtn.addEventListener("click", () => hide());
 
         container.append(settingsBtn, mainBtn, badge, closeBtn);
@@ -10474,23 +11110,26 @@ function injectFloatingEntryStyles() {
             height: 22px;
             border: 0;
             border-radius: 50%;
-            background: rgba(50, 50, 50, 0.92);
-            color: #eee;
-            box-shadow: 0 2px 8px rgba(0, 0, 0, 0.25);
-            font-size: 11px;
+            background: rgba(27, 31, 37, 0.94);
+            color: rgb(232, 238, 243);
+            box-shadow: 0 2px 10px rgba(0, 0, 0, 0.28);
+            font-size: 12px;
             font-weight: 700;
-            line-height: 22px;
+            line-height: 1;
             text-align: center;
             cursor: pointer;
             padding: 0;
             z-index: 2;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
             font-family: -apple-system, BlinkMacSystemFont, "Helvetica Neue", Helvetica, Arial, "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", sans-serif;
             transition: transform 0.2s ease, background 0.2s ease, box-shadow 0.2s ease;
         }
 
         #${floatingEntryId} .bbvt-fe-settings:hover {
             transform: translateX(-50%) scale(1.1);
-            background: rgba(70, 70, 70, 0.95);
+            background: rgba(42, 48, 57, 0.98);
             box-shadow: 0 3px 10px rgba(0, 0, 0, 0.3);
         }
 
@@ -10505,9 +11144,9 @@ function injectFloatingEntryStyles() {
             height: 44px;
             border: 0;
             border-radius: 50%;
-            background: linear-gradient(135deg, rgb(0, 190, 255), rgb(0, 160, 214));
+            background: linear-gradient(135deg, rgb(18, 183, 219), rgb(20, 134, 178));
             color: white;
-            box-shadow: 0 4px 12px rgba(0, 174, 236, 0.4), 0 8px 24px rgba(0, 0, 0, 0.2);
+            box-shadow: 0 4px 12px rgba(18, 183, 219, 0.32), 0 8px 24px rgba(0, 0, 0, 0.22);
             font-size: 15px;
             font-weight: 700;
             cursor: pointer;
@@ -10518,7 +11157,7 @@ function injectFloatingEntryStyles() {
 
         #${floatingEntryId} .bbvt-fe-main:hover {
             transform: scale(1.08);
-            box-shadow: 0 6px 16px rgba(0, 174, 236, 0.5), 0 12px 32px rgba(0, 0, 0, 0.25);
+            box-shadow: 0 6px 16px rgba(18, 183, 219, 0.42), 0 12px 32px rgba(0, 0, 0, 0.26);
         }
 
         #${floatingEntryId} .bbvt-fe-main:active {
@@ -10526,7 +11165,7 @@ function injectFloatingEntryStyles() {
         }
 
         #${floatingEntryId}.bbvt-fe-disabled .bbvt-fe-main {
-            background: linear-gradient(135deg, rgb(130, 130, 130), rgb(90, 90, 90));
+            background: linear-gradient(135deg, rgb(112, 121, 132), rgb(72, 80, 90));
             box-shadow: 0 4px 12px rgba(0, 0, 0, 0.2);
             animation: none;
         }
@@ -10536,19 +11175,19 @@ function injectFloatingEntryStyles() {
         }
 
         #${floatingEntryId}.bbvt-fe-warning .bbvt-fe-main {
-            background: linear-gradient(135deg, rgb(255, 120, 60), rgb(220, 60, 20));
-            box-shadow: 0 4px 12px rgba(255, 100, 50, 0.4), 0 8px 24px rgba(0, 0, 0, 0.2);
+            background: linear-gradient(135deg, rgb(245, 158, 11), rgb(221, 94, 28));
+            box-shadow: 0 4px 12px rgba(245, 158, 11, 0.34), 0 8px 24px rgba(0, 0, 0, 0.22);
             animation: fePulseWarning 2s infinite cubic-bezier(0.66, 0, 0, 1);
         }
 
         #${floatingEntryId}.bbvt-fe-warning:hover .bbvt-fe-main {
-            box-shadow: 0 6px 16px rgba(255, 100, 50, 0.6), 0 12px 32px rgba(0, 0, 0, 0.3);
+            box-shadow: 0 6px 16px rgba(245, 158, 11, 0.48), 0 12px 32px rgba(0, 0, 0, 0.3);
         }
 
         @keyframes fePulseWarning {
-            0% { box-shadow: 0 0 0 0 rgba(255, 100, 50, 0.5); }
-            70% { box-shadow: 0 0 0 12px rgba(255, 100, 50, 0); }
-            100% { box-shadow: 0 0 0 0 rgba(255, 100, 50, 0); }
+            0% { box-shadow: 0 0 0 0 rgba(245, 158, 11, 0.5); }
+            70% { box-shadow: 0 0 0 12px rgba(245, 158, 11, 0); }
+            100% { box-shadow: 0 0 0 0 rgba(245, 158, 11, 0); }
         }
 
         #${floatingEntryId} .bbvt-fe-close {
@@ -10559,10 +11198,10 @@ function injectFloatingEntryStyles() {
             height: 20px;
             border: 0;
             border-radius: 50%;
-            background: rgba(40, 40, 40, 0.9);
-            color: #ccc;
+            background: rgba(27, 31, 37, 0.92);
+            color: rgb(215, 222, 229);
             font-size: 14px;
-            line-height: 20px;
+            line-height: 1;
             text-align: center;
             padding: 0;
             cursor: pointer;
@@ -10572,6 +11211,9 @@ function injectFloatingEntryStyles() {
             transition: all 0.2s ease;
             z-index: 1;
             box-shadow: 0 2px 6px rgba(0,0,0,0.3);
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
         }
 
         #${floatingEntryId}:hover .bbvt-fe-close {
@@ -10581,9 +11223,15 @@ function injectFloatingEntryStyles() {
         }
 
         #${floatingEntryId} .bbvt-fe-close:hover {
-            background: rgba(255, 60, 60, 0.9);
+            background: rgba(232, 93, 93, 0.95);
             color: white;
             transform: scale(1.15);
+        }
+
+        #${floatingEntryId} .bbvt-icon {
+            width: 13px;
+            height: 13px;
+            flex: 0 0 auto;
         }
     `;
 

@@ -9,13 +9,7 @@
 // @supportURL      https://github.com/Turing222/bilibili_blocked/issues
 // @icon            https://www.bilibili.com/favicon.ico
 // @match           https://www.bilibili.com/*
-// @match           https://live.bilibili.com/*
 // @match           https://search.bilibili.com/*
-// @match           https://space.bilibili.com/*
-// @match           https://account.bilibili.com/*
-// @match           https://message.bilibili.com/*
-// @match           https://t.bilibili.com/*
-// @match           https://link.bilibili.com/*
 // @grant           GM_registerMenuCommand
 // @grant           GM_setValue
 // @grant           GM_getValue
