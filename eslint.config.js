@@ -33,5 +33,17 @@ export default [
             "no-unused-vars": "warn",
             "no-undef": "error"
         }
+    },
+    {
+        files: ["scripts/lib/**/*.js"],
+        languageOptions: {
+            globals: {
+                ...globals.node
+            }
+        },
+        rules: {
+            "no-unused-vars": "warn",
+            "no-undef": "error"
+        }
     }
 ];

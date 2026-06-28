@@ -51,6 +51,8 @@ npm run test     # 仅运行测试
 npm run perf:boundary # 轻量性能边界压测
 ```
 
+> 自动化构建链路、浏览器冒烟测试与「命令转测试」工作流的完整方法论，见 [`docs/automation-playbook.md`](docs/automation-playbook.md)。
+
 ## 相对原版的改动
 
 - 单体脚本拆分为 `src/` 模块，ESM + 构建打包

@@ -11,7 +11,7 @@
     "test": "node --test tests/*.test.js",
     "check": "node scripts/build-userjs.mjs && node --check dist/bilibili_blocked_videos_by_tags.user.js && npm run test",
     "perf:boundary": "node scripts/perf-boundary.mjs",
-    "lint": "eslint src tests",
+    "lint": "eslint src tests scripts/lib",
     "pw:chrome": "powershell.exe -NoProfile -ExecutionPolicy Bypass -File tools/bilibili-browser/start-chrome.ps1",
     "pw:smoke": "node scripts/playwright-smoke.mjs",
     "pw:comment-timing": "node scripts/comment-timing-smoke.mjs",

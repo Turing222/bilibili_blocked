@@ -1,5 +1,7 @@
 # Bilibili Browser Profile
 
+> 这套脚本是「浏览器验证工作流」的一环，方法论总览（含可复用骨架、踩坑清单与跨项目迁移 checklist）见 [`../../docs/automation-playbook.md`](../../docs/automation-playbook.md)。
+
 This folder contains small helper scripts for using a dedicated Chrome profile
 with Bilibili. The profile stores login cookies outside the repo:
 

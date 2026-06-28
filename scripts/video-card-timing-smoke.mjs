@@ -1,62 +1,21 @@
 import fs from "node:fs/promises";
 import path from "node:path";
 import { chromium } from "@playwright/test";
+import {
+  readArg,
+  cleanText,
+  createRunId,
+  createRecorder,
+  toRelative,
+  writeRunFiles,
+  selectPage,
+} from "./lib/harness.js";
 
 const port = Number(readArg("--port") ?? 9223);
 const pageUrl = readArg("--url") ?? "https://www.bilibili.com/";
 const userscriptPath = path.resolve(readArg("--userscript") ?? "dist/bilibili_blocked_videos_by_tags.user.js");
 const outputRoot = path.resolve(readArg("--output-dir") ?? "artifacts/playwright/video-card-timing");
 const endpoint = `http://127.0.0.1:${port}`;
-
-function readArg(name) {
-  const index = process.argv.indexOf(name);
-  return index >= 0 ? process.argv[index + 1] : undefined;
-}
-
-function cleanText(value, max = 240) {
-  return String(value ?? "").replace(/\s+/g, " ").trim().slice(0, max);
-}
-
-function createRunId() {
-  return new Date().toISOString().replace(/[:.]/g, "-");
-}
-
-function createRecorder() {
-  const startedAt = Date.now();
-  const events = [];
-  return {
-    events,
-    mark(kind, data = {}) {
-      events.push({
-        t: Date.now() - startedAt,
-        ts: new Date().toISOString(),
-        kind,
-        ...data,
-      });
-    },
-  };
-}
-
-function toRelative(filePath) {
-  return path.relative(process.cwd(), filePath) || ".";
-}
-
-async function writeRunFiles(runDir, result, events) {
-  const resultPath = path.join(runDir, "result.json");
-  const eventsPath = path.join(runDir, "events.jsonl");
-  await fs.writeFile(resultPath, `${JSON.stringify(result, null, 2)}\n`, "utf8");
-  await fs.writeFile(eventsPath, `${events.map((event) => JSON.stringify(event)).join("\n")}\n`, "utf8");
-  return { resultPath, eventsPath };
-}
-
-async function selectPage(context) {
-  const pages = context.pages();
-  return (
-    pages.find((page) => page.url().includes("www.bilibili.com")) ??
-    pages[0] ??
-    (await context.newPage())
-  );
-}
 
 async function ensureFeedPage(page, recorder) {
   await page.goto(pageUrl, { waitUntil: "domcontentloaded", timeout: 45000 }).catch(() => {});
@@ -419,7 +378,7 @@ async function runTiming(runDir, recorder) {
     }
     recorder.mark("browser.connected", { contextCount: browser.contexts().length });
 
-    const page = await selectPage(context);
+    const page = await selectPage(context, ["www.bilibili.com"]);
     await page.bringToFront();
     await ensureFeedPage(page, recorder);
     await installHarness(page);

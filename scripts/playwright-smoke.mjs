@@ -1,63 +1,21 @@
 import fs from "node:fs/promises";
 import path from "node:path";
 import { chromium } from "@playwright/test";
+import {
+  readArg,
+  cleanText,
+  createRunId,
+  createRecorder,
+  toRelative,
+  writeRunFiles,
+  selectPage,
+} from "./lib/harness.js";
 
 const port = Number(readArg("--port") ?? 9223);
 const videoUrl = readArg("--video");
 const outputRoot = path.resolve(readArg("--output-dir") ?? "artifacts/playwright/runs");
 const openFirstVideo = process.argv.includes("--open-first-video") || !videoUrl;
 const endpoint = `http://127.0.0.1:${port}`;
-
-function readArg(name) {
-  const index = process.argv.indexOf(name);
-  return index >= 0 ? process.argv[index + 1] : undefined;
-}
-
-function cleanText(value, max = 240) {
-  return String(value ?? "").replace(/\s+/g, " ").trim().slice(0, max);
-}
-
-function createRunId() {
-  return new Date().toISOString().replace(/[:.]/g, "-");
-}
-
-function createRecorder() {
-  const startedAt = Date.now();
-  const events = [];
-  return {
-    events,
-    mark(kind, data = {}) {
-      events.push({
-        t: Date.now() - startedAt,
-        ts: new Date().toISOString(),
-        kind,
-        ...data,
-      });
-    },
-  };
-}
-
-function toRelative(filePath) {
-  return path.relative(process.cwd(), filePath) || ".";
-}
-
-async function writeRunFiles(runDir, result, events) {
-  const resultPath = path.join(runDir, "result.json");
-  const eventsPath = path.join(runDir, "events.jsonl");
-  await fs.writeFile(resultPath, `${JSON.stringify(result, null, 2)}\n`, "utf8");
-  await fs.writeFile(eventsPath, `${events.map((event) => JSON.stringify(event)).join("\n")}\n`, "utf8");
-  return { resultPath, eventsPath };
-}
-
-async function selectPage(context) {
-  const pages = context.pages();
-  return (
-    pages.find((page) => page.url().includes("www.bilibili.com/video/")) ??
-    pages.find((page) => page.url().includes("bilibili.com")) ??
-    pages[0] ??
-    (await context.newPage())
-  );
-}
 
 async function getFirstVideo(page) {
   return page.evaluate(() => {
@@ -131,7 +89,7 @@ async function runSmoke(runDir, recorder) {
       }
     });
 
-    const page = await selectPage(context);
+    const page = await selectPage(context, ["www.bilibili.com/video/", "bilibili.com"]);
     await page.bringToFront();
     await page.waitForLoadState("domcontentloaded", { timeout: 15000 }).catch(() => {});
     recorder.mark("page.selected", { url: page.url() });
