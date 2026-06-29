@@ -212,6 +212,31 @@ export function createBilibiliDomAdapter() {
             return /^https:\/\/www\.bilibili\.com\/video\//.test(currentUrl);
         },
 
+        isCommentSectionReady() {
+            if (document.querySelector("bili-comments")) {
+                return true;
+            }
+
+            const commentApp = document.querySelector("#commentapp");
+            return (commentApp?.childElementCount ?? 0) > 0;
+        },
+
+        shouldDeferRecommendationOverlay(currentUrl, settings) {
+            if (!this.shouldHandleCommentFiltering(currentUrl)) {
+                return false;
+            }
+
+            if (settings.hideVideoMode_Switch) {
+                return false;
+            }
+
+            return !this.isCommentSectionReady();
+        },
+
+        isRecommendationVideoCard(videoElement) {
+            return videoElement?.classList?.contains("video-page-card-small");
+        },
+
         getCommentElements() {
             const primarySelectors = [
                 "div.reply-item",

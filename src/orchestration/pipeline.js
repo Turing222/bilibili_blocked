@@ -27,6 +27,10 @@ import { hideHoverReviewPanel } from "../actions/review-panel.js";
 
 let pipelineRunning = false;
 let pendingPipelineOptions = null;
+let deferredRecommendationOverlayObserver = null;
+let deferredRecommendationOverlayTimer = null;
+
+const DEFER_RECOMMENDATION_OVERLAY_MS = 15000;
 
 export function isPipelineRunning() {
     return pipelineRunning;
@@ -233,8 +237,66 @@ function runSingleVideoPipeline(context, videoElement) {
         }
     }
 
+    if (shouldDeferRecommendationOverlayRender(videoContext)) {
+        scheduleDeferredRecommendationOverlayRender(videoContext);
+        return videoRef;
+    }
+
     context.renderer.renderVideoBlockedState(videoContext);
     return videoRef;
+}
+
+function shouldDeferRecommendationOverlayRender(videoContext) {
+    const { domAdapter, settings, videoElement, videoBv, videoStore } = videoContext;
+    const videoInfo = videoStore.getVideoInfo(videoBv);
+
+    if (!videoInfo?.blockedTarget || settings.hideVideoMode_Switch) {
+        return false;
+    }
+
+    if (!domAdapter.isRecommendationVideoCard?.(videoElement)) {
+        return false;
+    }
+
+    return domAdapter.shouldDeferRecommendationOverlay(window.location.href, settings);
+}
+
+function scheduleDeferredRecommendationOverlayRender(videoContext) {
+    if (deferredRecommendationOverlayObserver || deferredRecommendationOverlayTimer) {
+        return;
+    }
+
+    const finishDeferredRecommendationOverlayRender = () => {
+        clearDeferredRecommendationOverlayScheduling();
+        videoContext.refresh?.();
+    };
+
+    const commentApp = document.querySelector("#commentapp");
+    if (commentApp && typeof MutationObserver === "function") {
+        deferredRecommendationOverlayObserver = new MutationObserver(() => {
+            if (videoContext.domAdapter.isCommentSectionReady()) {
+                finishDeferredRecommendationOverlayRender();
+            }
+        });
+        deferredRecommendationOverlayObserver.observe(commentApp, {
+            childList: true,
+            subtree: true,
+        });
+    }
+
+    deferredRecommendationOverlayTimer = setTimeout(() => {
+        finishDeferredRecommendationOverlayRender();
+    }, DEFER_RECOMMENDATION_OVERLAY_MS);
+}
+
+function clearDeferredRecommendationOverlayScheduling() {
+    deferredRecommendationOverlayObserver?.disconnect();
+    deferredRecommendationOverlayObserver = null;
+
+    if (deferredRecommendationOverlayTimer) {
+        clearTimeout(deferredRecommendationOverlayTimer);
+        deferredRecommendationOverlayTimer = null;
+    }
 }
 
 function isPipelineScriptEnabled(settings) {
@@ -242,6 +304,7 @@ function isPipelineScriptEnabled(settings) {
 }
 
 export function clearScriptEffects(context) {
+    clearDeferredRecommendationOverlayScheduling();
     dismissCommentQuickBlockUi();
     closeQuickBlockOverlay();
     hideHoverReviewPanel();

@@ -403,3 +403,91 @@ describe("debounced api refresh pattern", () => {
         assert.equal(pipelineRuns, 1);
     });
 });
+
+describe("recommendation overlay defer on video pages", () => {
+    afterEach(() => {
+        mock.timers.reset();
+        delete globalThis.document;
+        delete globalThis.MutationObserver;
+    });
+
+    it("defers recommendation card overlay rendering until comment section is ready", () => {
+        let renderCount = 0;
+        let refreshCount = 0;
+        let observerCallback = null;
+
+        globalThis.window = {
+            location: { href: "https://www.bilibili.com/video/BV1test/" },
+        };
+
+        const commentApp = {
+            childElementCount: 0,
+        };
+
+        globalThis.document = {
+            querySelector(selector) {
+                if (selector === "#commentapp") {
+                    return commentApp;
+                }
+                if (selector === "bili-comments") {
+                    return null;
+                }
+                return null;
+            },
+        };
+
+        globalThis.MutationObserver = class {
+            constructor(callback) {
+                observerCallback = callback;
+            }
+
+            observe() {}
+
+            disconnect() {}
+        };
+
+        const recommendationCard = {
+            classList: {
+                contains: (name) => name === "video-page-card-small",
+            },
+            dataset: {},
+            querySelector: () => null,
+            querySelectorAll: () => [],
+        };
+
+        const context = createPipelineContext({
+            skipVideoBlocking: false,
+            videoElements: [recommendationCard],
+            settings: {
+                hideVideoMode_Switch: false,
+            },
+        });
+
+        context.domAdapter = {
+            ...context.domAdapter,
+            shouldSkipVideoBlocking: () => false,
+            getVideoElements: () => [recommendationCard],
+            isRecommendationVideoCard: (element) => element === recommendationCard,
+            shouldDeferRecommendationOverlay: () => true,
+            isCommentSectionReady: () => commentApp.childElementCount > 0,
+            shouldHandleCommentFiltering: () => true,
+        };
+        context.refresh = () => {
+            refreshCount++;
+        };
+        context.renderer.renderVideoBlockedState = () => {
+            renderCount++;
+        };
+
+        runPipeline(context);
+
+        assert.equal(renderCount, 0);
+        assert.equal(refreshCount, 0);
+        assert.equal(typeof observerCallback, "function");
+
+        commentApp.childElementCount = 1;
+        observerCallback([{ type: "childList" }]);
+
+        assert.equal(refreshCount, 1);
+    });
+});

@@ -2483,6 +2483,10 @@ function injectReviewPanelStyles() {
 
 let pipelineRunning = false;
 let pendingPipelineOptions = null;
+let deferredRecommendationOverlayObserver = null;
+let deferredRecommendationOverlayTimer = null;
+
+const DEFER_RECOMMENDATION_OVERLAY_MS = 15000;
 function isPipelineRunning() {
     return pipelineRunning;
 }
@@ -2686,14 +2690,73 @@ function runSingleVideoPipeline(context, videoElement) {
         }
     }
 
+    if (shouldDeferRecommendationOverlayRender(videoContext)) {
+        scheduleDeferredRecommendationOverlayRender(videoContext);
+        return videoRef;
+    }
+
     context.renderer.renderVideoBlockedState(videoContext);
     return videoRef;
+}
+
+function shouldDeferRecommendationOverlayRender(videoContext) {
+    const { domAdapter, settings, videoElement, videoBv, videoStore } = videoContext;
+    const videoInfo = videoStore.getVideoInfo(videoBv);
+
+    if (!videoInfo?.blockedTarget || settings.hideVideoMode_Switch) {
+        return false;
+    }
+
+    if (!domAdapter.isRecommendationVideoCard?.(videoElement)) {
+        return false;
+    }
+
+    return domAdapter.shouldDeferRecommendationOverlay(window.location.href, settings);
+}
+
+function scheduleDeferredRecommendationOverlayRender(videoContext) {
+    if (deferredRecommendationOverlayObserver || deferredRecommendationOverlayTimer) {
+        return;
+    }
+
+    const finishDeferredRecommendationOverlayRender = () => {
+        clearDeferredRecommendationOverlayScheduling();
+        videoContext.refresh?.();
+    };
+
+    const commentApp = document.querySelector("#commentapp");
+    if (commentApp && typeof MutationObserver === "function") {
+        deferredRecommendationOverlayObserver = new MutationObserver(() => {
+            if (videoContext.domAdapter.isCommentSectionReady()) {
+                finishDeferredRecommendationOverlayRender();
+            }
+        });
+        deferredRecommendationOverlayObserver.observe(commentApp, {
+            childList: true,
+            subtree: true,
+        });
+    }
+
+    deferredRecommendationOverlayTimer = setTimeout(() => {
+        finishDeferredRecommendationOverlayRender();
+    }, DEFER_RECOMMENDATION_OVERLAY_MS);
+}
+
+function clearDeferredRecommendationOverlayScheduling() {
+    deferredRecommendationOverlayObserver?.disconnect();
+    deferredRecommendationOverlayObserver = null;
+
+    if (deferredRecommendationOverlayTimer) {
+        clearTimeout(deferredRecommendationOverlayTimer);
+        deferredRecommendationOverlayTimer = null;
+    }
 }
 
 function isPipelineScriptEnabled(settings) {
     return settings.scriptEnabled_Switch !== false;
 }
 function clearScriptEffects(context) {
+    clearDeferredRecommendationOverlayScheduling();
     dismissCommentQuickBlockUi();
     closeQuickBlockOverlay();
     hideHoverReviewPanel();
@@ -6549,6 +6612,31 @@ const videoCardSelectors = [
 
         shouldHandleCommentFiltering(currentUrl) {
             return /^https:\/\/www\.bilibili\.com\/video\//.test(currentUrl);
+        },
+
+        isCommentSectionReady() {
+            if (document.querySelector("bili-comments")) {
+                return true;
+            }
+
+            const commentApp = document.querySelector("#commentapp");
+            return (commentApp?.childElementCount ?? 0) > 0;
+        },
+
+        shouldDeferRecommendationOverlay(currentUrl, settings) {
+            if (!this.shouldHandleCommentFiltering(currentUrl)) {
+                return false;
+            }
+
+            if (settings.hideVideoMode_Switch) {
+                return false;
+            }
+
+            return !this.isCommentSectionReady();
+        },
+
+        isRecommendationVideoCard(videoElement) {
+            return videoElement?.classList?.contains("video-page-card-small");
         },
 
         getCommentElements() {
