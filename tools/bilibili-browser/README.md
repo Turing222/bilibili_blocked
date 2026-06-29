@@ -97,9 +97,10 @@ bili-comments
 The script reads the first comment from the component data and also reports the
 rendered `bili-rich-text` text from Shadow DOM.
 
-This uses Chrome DevTools Protocol on `127.0.0.1:9223` and does not require
-Playwright or browser-use.
-
+This uses Chrome DevTools Protocol on `127.0.0.1:9223` via Playwright
+`connectOverCDP` (same stack as the timing smokes). The deterministic JSON probe
+still lives in `inspect-comments.mjs`; shared DOM extractors are in
+`scripts/lib/bilibili-dom.js`.
 ## Phase 1: Chrome DevTools MCP
 
 Stage 1 wires up `chrome-devtools-mcp@1.4.0` (full mode) against the same

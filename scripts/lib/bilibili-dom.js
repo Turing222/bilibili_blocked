@@ -472,3 +472,141 @@ export async function checkCommentQuickBlockMarkerInBrowser(targetKeyword) {
     },
   };
 }
+
+export function collectInspectPageStateInBrowser() {
+  return {
+    url: location.href,
+    title: document.title,
+    loggedInHints: {
+      hasLoginText: document.body.innerText.includes("登录"),
+      cookieNames: document.cookie
+        .split(";")
+        .map((x) => x.trim().split("=")[0])
+        .filter(Boolean),
+    },
+    video: {
+      aid: window.__INITIAL_STATE__?.aid || window.__INITIAL_STATE__?.videoData?.aid || null,
+      bvid:
+        window.__INITIAL_STATE__?.bvid ||
+        window.__INITIAL_STATE__?.videoData?.bvid ||
+        location.pathname.match(/BV[^/?#]+/)?.[0] ||
+        null,
+    },
+    commentHosts: [
+      ...document.querySelectorAll(
+        '#commentapp, bili-comments, [class*="comment" i], [class*="reply" i]'
+      ),
+    ]
+      .slice(0, 30)
+      .map((el) => ({
+        tag: el.tagName,
+        id: el.id,
+        className: String(el.className || "").slice(0, 120),
+        hasShadowRoot: !!el.shadowRoot,
+        text: (el.innerText || "").replace(/\s+/g, " ").slice(0, 180),
+      })),
+  };
+}
+
+export function collectInspectDomCommentInBrowser() {
+  const clean = (value) => String(value || "").replace(/\s+/g, " ").trim();
+  const host = document.querySelector("bili-comments");
+  const threads = host?.shadowRoot
+    ? [...host.shadowRoot.querySelectorAll("bili-comment-thread-renderer")]
+    : [];
+  const firstThread = threads[0];
+  const firstRenderer = firstThread?.shadowRoot?.querySelector("bili-comment-renderer");
+  const firstRichText = firstRenderer?.shadowRoot?.querySelector("bili-rich-text");
+  const richTextContents = firstRichText?.shadowRoot?.querySelector("#contents");
+  const data = firstThread?.__data ?? null;
+  const dataMessage = data?.content?.message ?? null;
+  const richText = clean(richTextContents?.innerText || richTextContents?.textContent);
+
+  if (data || richText) {
+    return {
+      selector: "bili-comments::shadowRoot > bili-comment-thread-renderer",
+      componentTree: [
+        "bili-comments",
+        "bili-comment-thread-renderer",
+        "bili-comment-renderer",
+        "bili-rich-text",
+      ],
+      tag: firstThread?.tagName ?? null,
+      hasShadowRoot: !!firstThread?.shadowRoot,
+      threadCount: threads.length,
+      text: clean(dataMessage || richText).slice(0, 1000),
+      firstComment: data
+        ? {
+            user: data.member?.uname ?? null,
+            message: data.content?.message ?? null,
+            rpid: data.rpid_str ?? String(data.rpid ?? ""),
+            oid: data.oid_str ?? String(data.oid ?? ""),
+            like: data.like ?? null,
+            time: data.reply_control?.time_desc ?? null,
+            location: data.reply_control?.location ?? null,
+            isPinned: !!data.reply_control?.is_up_top,
+          }
+        : null,
+      richTextDom: richText || null,
+    };
+  }
+
+  if (host?.shadowRoot) {
+    const threadCount = host.shadowRoot.querySelectorAll("bili-comment-thread-renderer").length;
+    const text = host.shadowRoot.innerText || "";
+    return {
+      selector: "bili-comments::shadowRoot",
+      tag: "BILI-COMMENTS",
+      hasShadowRoot: true,
+      threadCount,
+      text: text.slice(0, 500),
+    };
+  }
+
+  return null;
+}
+
+export async function fetchInspectApiReplyInBrowser(aid) {
+  const url = `https://api.bilibili.com/x/v2/reply?type=1&oid=${aid}&sort=2&ps=1&pn=1`;
+  try {
+    const res = await fetch(url, { credentials: "include" });
+    const contentType = res.headers.get("content-type");
+    const text = await res.text();
+    let json = null;
+    try {
+      json = JSON.parse(text);
+    } catch {
+      json = null;
+    }
+    const first = json?.data?.replies?.[0] ?? null;
+    return {
+      status: res.status,
+      contentType,
+      code: json?.code ?? null,
+      message: json?.message ?? null,
+      firstComment: first
+        ? {
+            user: first.member?.uname ?? null,
+            message: first.content?.message ?? null,
+          }
+        : null,
+      sample: first ? null : text.slice(0, 300),
+    };
+  } catch (error) {
+    return { error: String(error) };
+  }
+}
+
+export function getFirstHomeVideoLinkInBrowser() {
+  for (const link of document.querySelectorAll('a[href*="/video/"]')) {
+    const rect = link.getBoundingClientRect();
+    const href = new URL(link.getAttribute("href"), location.href).href.split("?")[0];
+    const text = (link.innerText || link.title || link.getAttribute("aria-label") || "")
+      .replace(/\s+/g, " ")
+      .trim();
+    if (href.includes("/video/") && rect.width > 20 && rect.height > 20) {
+      return { href, text };
+    }
+  }
+  return null;
+}
