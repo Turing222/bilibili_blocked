@@ -20,7 +20,8 @@
     "pw:mcp-probe": "node tools/bilibili-browser/mcp-probe-collect.mjs",
     "pw:normalize-results": "node tools/bilibili-browser/normalize-results.mjs",
     "pw:baseline": "node scripts/capture-smoke-baselines.mjs",
-    "pw:inspect": "node tools/bilibili-browser/inspect-comments.mjs"
+    "pw:inspect": "node tools/bilibili-browser/inspect-comments.mjs",
+    "ci:deterministic-smoke": "npm run build && node scripts/ci-deterministic-smoke.mjs"
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",
