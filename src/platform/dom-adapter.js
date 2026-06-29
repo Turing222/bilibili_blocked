@@ -111,6 +111,11 @@ const videoCardSelectors = [
     "div.rank-wrap",
 ].join(", ");
 
+const promotedVideoLinkSelector = [
+    `a[href^="//cm.bilibili.com/"]`,
+    `a[href^="https://cm.bilibili.com/"]`,
+].join(", ");
+
 export function createBilibiliDomAdapter() {
     return {
         shouldSkipVideoBlocking(currentUrl) {
@@ -205,6 +210,20 @@ export function createBilibiliDomAdapter() {
             if (!settings.hideTrending_Switch) return;
             document.querySelectorAll("div.trending").forEach((el) => {
                 el.style.display = "none";
+            });
+        },
+
+        hidePromotedVideoCards() {
+            document.querySelectorAll(promotedVideoLinkSelector).forEach((link) => {
+                hidePromotedVideoCardTarget(getPromotedVideoCardBlockTarget(link));
+            });
+        },
+
+        restorePromotedVideoCards() {
+            document.querySelectorAll("[data-bbvt-promoted-video-card-hidden]").forEach((element) => {
+                element.style.display = element.dataset.bbvtPromotedVideoCardOriginalDisplay || "";
+                delete element.dataset.bbvtPromotedVideoCardHidden;
+                delete element.dataset.bbvtPromotedVideoCardOriginalDisplay;
             });
         },
 
@@ -334,6 +353,42 @@ function hideElementsBySelector(selector, fallbackSelector, matchesPredicate, ap
         elements = [...(document.querySelectorAll(fallbackSelector) || [])].filter(matchesPredicate);
     }
     elements.forEach(applyFn);
+}
+
+function getPromotedVideoCardBlockTarget(link) {
+    const feedCard = link?.closest?.("div.feed-card, div.bili-feed-card");
+    if (feedCard) {
+        return feedCard;
+    }
+
+    const searchCard = link?.closest?.("div.bili-video-card");
+    if (searchCard && window.location.href.startsWith("https://search.bilibili.com/")) {
+        return searchCard.parentElement || searchCard;
+    }
+
+    return link?.closest?.(
+        [
+            "div.video-page-card-small",
+            "div.video-card-ad-small",
+            "div.video-page-operator-card-small",
+            "div.video-page-special-card-small",
+            "div.bili-video-card",
+            ".ad-report",
+        ].join(", ")
+    ) || null;
+}
+
+function hidePromotedVideoCardTarget(element) {
+    if (!element?.dataset) {
+        return;
+    }
+
+    if (!Object.prototype.hasOwnProperty.call(element.dataset, "bbvtPromotedVideoCardOriginalDisplay")) {
+        element.dataset.bbvtPromotedVideoCardOriginalDisplay = element.style.display || "";
+    }
+
+    element.dataset.bbvtPromotedVideoCardHidden = "true";
+    element.style.display = "none";
 }
 
 function readCommentText(commentElement) {

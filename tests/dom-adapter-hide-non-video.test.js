@@ -73,6 +73,136 @@ describe("dom-adapter hideNonVideoElements :has() fallback", () => {
     });
 });
 
+describe("dom-adapter promoted video cards", () => {
+    it("hides search promoted video card wrappers without touching normal video cards", async () => {
+        const promotedHttpsParent = createFakeElement();
+        const promotedProtocolParent = createFakeElement();
+        const normalParent = createFakeElement();
+        const promotedHttpsLink = createFakeElement({
+            closest: (selector) => selector.includes("div.bili-video-card") ? promotedHttpsCard : null,
+        });
+        const promotedProtocolLink = createFakeElement({
+            closest: (selector) => selector.includes("div.bili-video-card") ? promotedProtocolCard : null,
+        });
+        const promotedHttpsCard = createFakeElement({
+            parentElement: promotedHttpsParent,
+        });
+        const promotedProtocolCard = createFakeElement({
+            parentElement: promotedProtocolParent,
+        });
+
+        globalThis.window = { location: { href: "https://search.bilibili.com/all?keyword=test" } };
+        globalThis.document = {
+            querySelectorAll(selector) {
+                if (selector.includes("cm.bilibili.com")) {
+                    return [promotedHttpsLink, promotedProtocolLink];
+                }
+                return [];
+            },
+        };
+
+        const { createBilibiliDomAdapter } = await importFreshDomAdapter();
+        const adapter = createBilibiliDomAdapter();
+
+        adapter.hidePromotedVideoCards();
+
+        assert.equal(promotedHttpsParent.style.display, "none");
+        assert.equal(promotedHttpsParent.dataset.bbvtPromotedVideoCardHidden, "true");
+        assert.equal(promotedProtocolParent.style.display, "none");
+        assert.equal(promotedProtocolParent.dataset.bbvtPromotedVideoCardHidden, "true");
+        assert.equal(normalParent.style.display, "");
+        assert.equal(normalParent.dataset.bbvtPromotedVideoCardHidden, undefined);
+    });
+
+    it("hides home feed promoted video card containers", async () => {
+        const feedCard = createFakeElement();
+        const link = createFakeElement({
+            closest: (selector) => selector.includes("div.feed-card") ? feedCard : null,
+        });
+
+        globalThis.window = { location: { href: "https://www.bilibili.com/" } };
+        globalThis.document = {
+            querySelectorAll(selector) {
+                return selector.includes("cm.bilibili.com") ? [link] : [];
+            },
+        };
+
+        const { createBilibiliDomAdapter } = await importFreshDomAdapter();
+        const adapter = createBilibiliDomAdapter();
+
+        adapter.hidePromotedVideoCards();
+
+        assert.equal(feedCard.style.display, "none");
+        assert.equal(feedCard.dataset.bbvtPromotedVideoCardHidden, "true");
+    });
+
+    it("hides video page promoted side cards", async () => {
+        const sideCard = createFakeElement();
+        const link = createFakeElement({
+            closest: (selector) => {
+                if (selector.includes("div.feed-card")) {
+                    return null;
+                }
+                if (selector.includes("div.video-page-card-small")) {
+                    return sideCard;
+                }
+                return null;
+            },
+        });
+
+        globalThis.window = { location: { href: "https://www.bilibili.com/video/BV1test" } };
+        globalThis.document = {
+            querySelectorAll(selector) {
+                return selector.includes("cm.bilibili.com") ? [link] : [];
+            },
+        };
+
+        const { createBilibiliDomAdapter } = await importFreshDomAdapter();
+        const adapter = createBilibiliDomAdapter();
+
+        adapter.hidePromotedVideoCards();
+
+        assert.equal(sideCard.style.display, "none");
+        assert.equal(sideCard.dataset.bbvtPromotedVideoCardHidden, "true");
+    });
+
+    it("restores hidden promoted video card wrappers", async () => {
+        const promotedParent = createFakeElement();
+        promotedParent.style.display = "grid";
+        const link = createFakeElement({
+            closest: (selector) => selector.includes("div.bili-video-card") ? promotedCard : null,
+        });
+        const promotedCard = createFakeElement({
+            parentElement: promotedParent,
+        });
+
+        globalThis.window = { location: { href: "https://search.bilibili.com/all?keyword=test" } };
+        globalThis.document = {
+            querySelectorAll(selector) {
+                if (selector.includes("cm.bilibili.com")) {
+                    return [link];
+                }
+                if (selector === "[data-bbvt-promoted-video-card-hidden]") {
+                    return promotedParent.dataset.bbvtPromotedVideoCardHidden ? [promotedParent] : [];
+                }
+                return [];
+            },
+        };
+
+        const { createBilibiliDomAdapter } = await importFreshDomAdapter();
+        const adapter = createBilibiliDomAdapter();
+
+        adapter.hidePromotedVideoCards();
+        assert.equal(promotedParent.style.display, "none");
+
+        adapter.restorePromotedVideoCards();
+
+        assert.equal(promotedParent.style.display, "grid");
+        assert.equal(promotedParent.dataset.bbvtPromotedVideoCardHidden, undefined);
+        assert.equal(promotedParent.dataset.bbvtPromotedVideoCardOriginalDisplay, undefined);
+    });
+});
+
 async function importFreshDomAdapter() {
     importCounter++;
     return import(`../src/platform/dom-adapter.js?dom-adapter-hide-non-video-test=${importCounter}`);
@@ -93,8 +223,12 @@ function createFakeElement(overrides = {}) {
     };
     return {
         classList,
+        dataset: {},
+        style: { display: "" },
         querySelector: () => null,
+        closest: () => null,
         parentNode: null,
+        parentElement: null,
         ...overrides,
     };
 }

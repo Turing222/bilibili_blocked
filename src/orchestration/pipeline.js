@@ -310,6 +310,7 @@ export function clearScriptEffects(context) {
     hideHoverReviewPanel();
     clearVideoBlocks(context);
     restoreCommentFilters(context);
+    context.domAdapter.restorePromotedVideoCards?.();
     restorePageCleanupEffects(context);
     context.renderer.restoreTrendingBlocks?.();
     context.renderer.removeAllBlockedOverlays?.();

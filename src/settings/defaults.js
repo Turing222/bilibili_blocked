@@ -90,6 +90,7 @@ export const defaultSettings = {
     blockedTrendingItem_UseRegular: true,
     blockedTrendingItem_Array: [],
 
+    hidePromotedVideoCards_Switch: true,
     hideNonVideoElements_Switch: true,
     floatingEntryVisible_Switch: true,
     blockedOverlayOnlyDisplaysType_Switch: false,

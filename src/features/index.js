@@ -8,6 +8,7 @@
 // - 主 pipeline 不关心功能细节，只遍历这些列表。
 
 import { pageCleanupFeature } from "./page-cleanup.js";
+import { promotedVideoCardsFeature } from "./promoted-video-cards.js";
 import { commentFilterFeature } from "./comment-filter.js";
 import { trendingFeature } from "./trending.js";
 import { basicVideoInfoFeature } from "./basic-video-info.js";
@@ -22,6 +23,7 @@ import { upBlockSuggestionsFeature } from "./up-block-suggestions.js";
 export function createFeatureRegistry() {
     return {
         pageFeatures: [
+            promotedVideoCardsFeature,
             pageCleanupFeature,
             commentFilterFeature,
         ],

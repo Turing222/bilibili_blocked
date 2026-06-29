@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name            Bilibili Blocked
 // @namespace       https://github.com/Turing222/bilibili_blocked
-// @version         2.0.1
+// @version         2.0.2
 // @description     按标签、标题、UP 主、分区、统计数据等条件屏蔽 B 站视频卡片；模块化重构版。
 // @author          Turing222
 // @license         CC-BY-NC-SA-4.0
@@ -2762,6 +2762,7 @@ function clearScriptEffects(context) {
     hideHoverReviewPanel();
     clearVideoBlocks(context);
     restoreCommentFilters(context);
+    context.domAdapter.restorePromotedVideoCards?.();
     restorePageCleanupEffects(context);
     context.renderer.restoreTrendingBlocks?.();
     context.renderer.removeAllBlockedOverlays?.();
@@ -2866,6 +2867,20 @@ const pageCleanupFeature = {
     enabled: ({ settings }) => settings.hideNonVideoElements_Switch,
     run: ({ domAdapter }) => {
         domAdapter.hideNonVideoElements();
+    },
+};
+
+// ---- src/features/promoted-video-cards.js ----
+const promotedVideoCardsFeature = {
+    name: "promoted-video-cards",
+    enabled: () => true,
+    run: ({ settings, domAdapter }) => {
+        if (settings.hidePromotedVideoCards_Switch) {
+            domAdapter.hidePromotedVideoCards?.();
+            return;
+        }
+
+        domAdapter.restorePromotedVideoCards?.();
     },
 };
 
@@ -3760,6 +3775,7 @@ const upBlockSuggestionsFeature = {
 function createFeatureRegistry() {
     return {
         pageFeatures: [
+            promotedVideoCardsFeature,
             pageCleanupFeature,
             commentFilterFeature,
         ],
@@ -3878,6 +3894,7 @@ function createFeatureRegistry() {
     blockedTrendingItem_UseRegular: true,
     blockedTrendingItem_Array: [],
 
+    hidePromotedVideoCards_Switch: true,
     hideNonVideoElements_Switch: true,
     floatingEntryVisible_Switch: true,
     blockedOverlayOnlyDisplaysType_Switch: false,
@@ -5434,6 +5451,7 @@ const CAPABILITY_IDS = {
     TITLE_UP_DOM: "title-up-dom",
     TRENDING_DOM: "trending-dom",
     COMMENT_DOM: "comment-dom",
+    PROMOTED_VIDEO_CARDS: "promoted-video-cards",
     PAGE_CLEANUP: "page-cleanup",
     LOCAL_TOOLS: "local-tools",
     VIDEO_VIEW_API: "video-view-api",
@@ -5487,6 +5505,16 @@ const capabilities = [
             "hideCommentMode_Switch",
         ],
         failurePolicy: "只读取页面已渲染评论，不主动请求评论 API。",
+    },
+    {
+        id: CAPABILITY_IDS.PROMOTED_VIDEO_CARDS,
+        label: "推广视频卡片屏蔽",
+        dataSource: DATA_SOURCE.DOM,
+        risk: RISK_LEVEL.LOW,
+        settings: [
+            "hidePromotedVideoCards_Switch",
+        ],
+        failurePolicy: "识别页面中 cm.bilibili.com 推广链接所在的视频卡片，不依赖 BV 或 API。",
     },
     {
         id: CAPABILITY_IDS.PAGE_CLEANUP,
@@ -6513,7 +6541,13 @@ const videoCardSelectors = [
     "div.video-card-reco",
     "div.video-card-common",
     "div.rank-wrap",
-].join(", ");function createBilibiliDomAdapter() {
+].join(", ");
+
+const promotedVideoLinkSelector = [
+    `a[href^="//cm.bilibili.com/"]`,
+    `a[href^="https://cm.bilibili.com/"]`,
+].join(", ");
+function createBilibiliDomAdapter() {
     return {
         shouldSkipVideoBlocking(currentUrl) {
             return noBlockedVideoUrls.some((urlRule) => urlRule.test(currentUrl));
@@ -6607,6 +6641,20 @@ const videoCardSelectors = [
             if (!settings.hideTrending_Switch) return;
             document.querySelectorAll("div.trending").forEach((el) => {
                 el.style.display = "none";
+            });
+        },
+
+        hidePromotedVideoCards() {
+            document.querySelectorAll(promotedVideoLinkSelector).forEach((link) => {
+                hidePromotedVideoCardTarget(getPromotedVideoCardBlockTarget(link));
+            });
+        },
+
+        restorePromotedVideoCards() {
+            document.querySelectorAll("[data-bbvt-promoted-video-card-hidden]").forEach((element) => {
+                element.style.display = element.dataset.bbvtPromotedVideoCardOriginalDisplay || "";
+                delete element.dataset.bbvtPromotedVideoCardHidden;
+                delete element.dataset.bbvtPromotedVideoCardOriginalDisplay;
             });
         },
 
@@ -6736,6 +6784,42 @@ function hideElementsBySelector(selector, fallbackSelector, matchesPredicate, ap
         elements = [...(document.querySelectorAll(fallbackSelector) || [])].filter(matchesPredicate);
     }
     elements.forEach(applyFn);
+}
+
+function getPromotedVideoCardBlockTarget(link) {
+    const feedCard = link?.closest?.("div.feed-card, div.bili-feed-card");
+    if (feedCard) {
+        return feedCard;
+    }
+
+    const searchCard = link?.closest?.("div.bili-video-card");
+    if (searchCard && window.location.href.startsWith("https://search.bilibili.com/")) {
+        return searchCard.parentElement || searchCard;
+    }
+
+    return link?.closest?.(
+        [
+            "div.video-page-card-small",
+            "div.video-card-ad-small",
+            "div.video-page-operator-card-small",
+            "div.video-page-special-card-small",
+            "div.bili-video-card",
+            ".ad-report",
+        ].join(", ")
+    ) || null;
+}
+
+function hidePromotedVideoCardTarget(element) {
+    if (!element?.dataset) {
+        return;
+    }
+
+    if (!Object.prototype.hasOwnProperty.call(element.dataset, "bbvtPromotedVideoCardOriginalDisplay")) {
+        element.dataset.bbvtPromotedVideoCardOriginalDisplay = element.style.display || "";
+    }
+
+    element.dataset.bbvtPromotedVideoCardHidden = "true";
+    element.style.display = "none";
 }
 
 function readCommentText(commentElement) {
@@ -8929,6 +9013,7 @@ const displayInteractionControls = [
         CONTEXT_MENU_SCRIPT_MODIFIER_OPTIONS
     ),
     booleanControl("显示浮窗入口", "floatingEntryVisible_Switch"),
+    booleanControl("隐藏推广视频卡片", "hidePromotedVideoCards_Switch"),
     booleanControl("隐藏非视频元素", "hideNonVideoElements_Switch"),
     booleanControl("叠加层只显示命中类型", "blockedOverlayOnlyDisplaysType_Switch"),
     booleanControl("隐藏视频而不是显示叠加层", "hideVideoMode_Switch"),

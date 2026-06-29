@@ -109,6 +109,7 @@ const displayInteractionControls = [
         CONTEXT_MENU_SCRIPT_MODIFIER_OPTIONS
     ),
     booleanControl("显示浮窗入口", "floatingEntryVisible_Switch"),
+    booleanControl("隐藏推广视频卡片", "hidePromotedVideoCards_Switch"),
     booleanControl("隐藏非视频元素", "hideNonVideoElements_Switch"),
     booleanControl("叠加层只显示命中类型", "blockedOverlayOnlyDisplaysType_Switch"),
     booleanControl("隐藏视频而不是显示叠加层", "hideVideoMode_Switch"),

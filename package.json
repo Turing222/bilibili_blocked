@@ -10,6 +10,7 @@
     "tm:dev:build": "node scripts/tampermonkey-dev.mjs --build-only",
     "test": "node --test tests/*.test.js",
     "check": "node scripts/build-userjs.mjs && node --check dist/bilibili_blocked_videos_by_tags.user.js && npm run test",
+    "release:check": "node scripts/release-check.mjs",
     "perf:boundary": "node scripts/perf-boundary.mjs",
     "lint": "eslint src tests scripts/lib",
     "pw:chrome": "powershell.exe -NoProfile -ExecutionPolicy Bypass -File tools/bilibili-browser/start-chrome.ps1",

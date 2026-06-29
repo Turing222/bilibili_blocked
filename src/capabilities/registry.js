@@ -21,6 +21,7 @@ export const CAPABILITY_IDS = {
     TITLE_UP_DOM: "title-up-dom",
     TRENDING_DOM: "trending-dom",
     COMMENT_DOM: "comment-dom",
+    PROMOTED_VIDEO_CARDS: "promoted-video-cards",
     PAGE_CLEANUP: "page-cleanup",
     LOCAL_TOOLS: "local-tools",
     VIDEO_VIEW_API: "video-view-api",
@@ -76,6 +77,16 @@ export const capabilities = [
             "hideCommentMode_Switch",
         ],
         failurePolicy: "只读取页面已渲染评论，不主动请求评论 API。",
+    },
+    {
+        id: CAPABILITY_IDS.PROMOTED_VIDEO_CARDS,
+        label: "推广视频卡片屏蔽",
+        dataSource: DATA_SOURCE.DOM,
+        risk: RISK_LEVEL.LOW,
+        settings: [
+            "hidePromotedVideoCards_Switch",
+        ],
+        failurePolicy: "识别页面中 cm.bilibili.com 推广链接所在的视频卡片，不依赖 BV 或 API。",
     },
     {
         id: CAPABILITY_IDS.PAGE_CLEANUP,
