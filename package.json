@@ -15,10 +15,14 @@
     "pw:chrome": "powershell.exe -NoProfile -ExecutionPolicy Bypass -File tools/bilibili-browser/start-chrome.ps1",
     "pw:smoke": "node scripts/playwright-smoke.mjs",
     "pw:comment-timing": "node scripts/comment-timing-smoke.mjs",
-    "pw:video-card-timing": "node scripts/video-card-timing-smoke.mjs"
+    "pw:video-card-timing": "node scripts/video-card-timing-smoke.mjs",
+    "pw:oracle-compare": "node tools/bilibili-browser/oracle-mcp-compare.mjs",
+    "pw:mcp-probe": "node tools/bilibili-browser/mcp-probe-collect.mjs",
+    "pw:normalize-results": "node tools/bilibili-browser/normalize-results.mjs"
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",
+    "@modelcontextprotocol/sdk": "^1.12.1",
     "@playwright/test": "1.61.1",
     "eslint": "^10.5.0",
     "globals": "^17.7.0"

@@ -100,6 +100,32 @@ rendered `bili-rich-text` text from Shadow DOM.
 This uses Chrome DevTools Protocol on `127.0.0.1:9223` and does not require
 Playwright or browser-use.
 
+## Phase 1: Chrome DevTools MCP
+
+Stage 1 wires up `chrome-devtools-mcp@1.4.0` (full mode) against the same
+9223 browser profile. Config lives in [`.cursor/mcp.json`](../../.cursor/mcp.json)
+and [`.codex/config.toml`](../../.codex/config.toml).
+
+1. Start Chrome: `npm run pw:chrome` (binds `127.0.0.1:9223` only).
+2. Log in to Bilibili manually in that window.
+3. Reload MCP in Cursor so `chrome-devtools` connects to `--browser-url=http://127.0.0.1:9223`.
+4. Tool-layer oracle diff (no agent):
+
+```powershell
+npm run pw:oracle-compare -- --open-first-video
+```
+
+This writes `artifacts/mcp-oracle/<timestamp>/{oracle.json,mcp.json,diff-report.json}`.
+Normalize-only diff:
+
+```powershell
+npm run pw:normalize-results -- --left artifacts/mcp-oracle/<ts>/oracle.json --right artifacts/mcp-oracle/<ts>/mcp.json
+```
+
+5. Agent-layer check (after MCP reload): ask the agent to run
+`list_pages → select_page(bringToFront) → navigate_page → evaluate_script(bili-comments) → list_network_requests`
+and interpret the result. See [`../../docs/tool-layer-evolution-plan.md`](../../docs/tool-layer-evolution-plan.md) §7 阶段 1.
+
 ## Tampermonkey Dev Loader
 
 Use this when you want to install the current local build through Tampermonkey
