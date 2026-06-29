@@ -1,5 +1,6 @@
 import fs from "node:fs/promises";
 import path from "node:path";
+import { randomUUID } from "node:crypto";
 
 const DEFAULT_LOCK_TTL_MS = 30 * 60 * 1000;
 
@@ -61,6 +62,7 @@ export async function acquireBrowserLease(port, owner, meta = {}) {
   const payload = {
     owner,
     pid: process.pid,
+    leaseId: randomUUID(),
     startedAt: new Date().toISOString(),
     ...meta,
   };
@@ -68,17 +70,35 @@ export async function acquireBrowserLease(port, owner, meta = {}) {
   return { lockDir, ...payload };
 }
 
-export async function releaseBrowserLease(port) {
+export async function releaseBrowserLease(port, lease = null) {
   const lockDir = browserLockDir(port);
+
+  if (lease) {
+    const existing = await readLockMeta(lockDir);
+    if (!existing) {
+      return;
+    }
+    if (
+      existing.owner !== lease.owner ||
+      existing.pid !== lease.pid ||
+      existing.leaseId !== lease.leaseId
+    ) {
+      throw new Error(
+        `Refusing to release browser lease owned by ${existing.owner ?? "unknown"} ` +
+          `(pid=${existing.pid ?? "?"}).`
+      );
+    }
+  }
+
   await fs.rm(lockDir, { recursive: true, force: true });
 }
 
 export async function withBrowserLease(port, owner, meta, fn) {
-  await acquireBrowserLease(port, owner, meta);
+  const lease = await acquireBrowserLease(port, owner, meta);
   try {
     return await fn();
   } finally {
-    await releaseBrowserLease(port);
+    await releaseBrowserLease(port, lease);
   }
 }
 

@@ -25,7 +25,7 @@ start-chrome.ps1          带 --remote-debugging-port + 独立 profile 启动真
   └─ 手动登录一次          登录态存在 repo 外,长期复用,幂等(已运行则连上)
        │
        ▼
-inspect-comments.mjs      [探查] CDP 连上去,肉眼看真实 DOM / Shadow DOM 结构
+inspect-comments.mjs      [探查] Playwright CDP 连上去,输出固定 JSON（oracle / MCP 对照）
        │                  ← 人工阶段:搞清楚选择器、组件树、数据藏在哪
        ▼
 tampermonkey-dev.mjs      [热迭代] 本地 HTTP server + @require 热加载 dist
@@ -155,4 +155,5 @@ run(runDir, recorder)
 | `scripts/comment-timing-smoke.mjs` | 评论屏蔽端到端冒烟（注入 dist） |
 | `scripts/video-card-timing-smoke.mjs` | 视频卡片屏蔽端到端冒烟（注入 dist） |
 | `scripts/perf-boundary.mjs` | 纯 Node 性能边界压测（不碰浏览器） |
-| `tools/bilibili-browser/README.md` | 启动真实 Chrome、命令注入对照表、Shadow DOM 结构 |
+| `tools/bilibili-browser/README.md` | 启动真实 Chrome、命令注入对照表、Shadow DOM 结构、MCP / oracle 验收 |
+| `docs/tool-layer-evolution-plan.md` | MCP + Playwright 分层演进（2026-06-29 主体完成，§7 收尾表） |

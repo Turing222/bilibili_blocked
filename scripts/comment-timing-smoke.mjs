@@ -256,7 +256,7 @@ async function triggerRefresh(page) {
 
 async function runTiming(runDir, recorder) {
   let browser;
-  await acquireBrowserLease(port, "pw:comment-timing", {
+  const lease = await acquireBrowserLease(port, "pw:comment-timing", {
     pageUrl: videoUrl ?? null,
   });
 
@@ -455,7 +455,7 @@ async function runTiming(runDir, recorder) {
     if (browser) {
       await browser.close().catch(() => {});
     }
-    await releaseBrowserLease(port);
+    await releaseBrowserLease(port, lease);
   }
 }
 

@@ -1,6 +1,7 @@
 # Userscript injection timing verification (phase 2)
 
-> Related: [`tool-layer-evolution-plan.md`](./tool-layer-evolution-plan.md) §4.4
+> Related: [`tool-layer-evolution-plan.md`](./tool-layer-evolution-plan.md) §4.4  
+> **Status (2026-06-29)**: Phase 2 验收已采用下方 interim 结论；smoke 均 `ok: true`。Plan A/B 仍为可选后续。
 
 ## Current facts
 

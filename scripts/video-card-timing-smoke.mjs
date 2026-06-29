@@ -358,7 +358,7 @@ async function scrollForMoreCards(page, recorder) {
 
 async function runTiming(runDir, recorder) {
   let browser;
-  await acquireBrowserLease(port, "pw:video-card-timing", { pageUrl });
+  const lease = await acquireBrowserLease(port, "pw:video-card-timing", { pageUrl });
 
   try {
     recorder.mark("run.start", {
@@ -434,7 +434,7 @@ async function runTiming(runDir, recorder) {
     throw error;
   } finally {
     await browser?.close().catch(() => {});
-    await releaseBrowserLease(port);
+    await releaseBrowserLease(port, lease);
   }
 }
 

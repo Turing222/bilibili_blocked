@@ -108,7 +108,7 @@ async function inspectVideoAndComments(page) {
 
 async function main() {
   await requestJson("/json/version");
-  await acquireBrowserLease(port, "inspect-comments", {
+  const lease = await acquireBrowserLease(port, "inspect-comments", {
     videoUrl: videoUrl ?? null,
     openFirstVideo,
   });
@@ -133,7 +133,7 @@ async function main() {
     console.log(JSON.stringify(summary, null, 2));
   } finally {
     await browser?.close().catch(() => {});
-    await releaseBrowserLease(port);
+    await releaseBrowserLease(port, lease);
   }
 }
 

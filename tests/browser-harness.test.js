@@ -59,8 +59,9 @@ describe("browser-harness lease", () => {
   it("acquires and releases a lock directory", async () => {
     const lease = await acquireBrowserLease(port, "test:lease", { pageUrl: "about:blank" });
     assert.equal(lease.owner, "test:lease");
+    assert.equal(typeof lease.leaseId, "string");
     assert.equal(await fs.stat(browserLockDir(port)).then(() => true).catch(() => false), true);
-    await releaseBrowserLease(port);
+    await releaseBrowserLease(port, lease);
     assert.equal(await fs.stat(browserLockDir(port)).then(() => true).catch(() => false), false);
   });
 
@@ -85,5 +86,15 @@ describe("browser-harness lease", () => {
 
     const lease = await acquireBrowserLease(port, "test:reclaim", {});
     assert.equal(lease.owner, "test:reclaim");
+  });
+
+  it("does not release a lease owned by another acquisition", async () => {
+    const lease = await acquireBrowserLease(port, "test:owner", {});
+    await assert.rejects(
+      () => releaseBrowserLease(port, { ...lease, leaseId: "wrong-token" }),
+      /Refusing to release/
+    );
+    assert.equal(await fs.stat(browserLockDir(port)).then(() => true).catch(() => false), true);
+    await releaseBrowserLease(port, lease);
   });
 });
