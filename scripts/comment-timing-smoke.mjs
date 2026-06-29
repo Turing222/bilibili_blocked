@@ -10,6 +10,16 @@ import {
   writeRunFiles,
   selectPage,
 } from "./lib/harness.js";
+import {
+  installBilibiliDomHelpers,
+  collectCommentTimingState as collectCommentTimingStateInBrowser,
+  moveAcrossPlaceholderInBrowser,
+  leavePlaceholderInBrowser,
+  clickReasonRemoveInBrowser,
+  checkCommentQuickBlockMarkerInBrowser,
+} from "./lib/bilibili-dom.js";
+import { injectUserscriptInBrowser } from "./lib/userscript-runtime.js";
+import { acquireBrowserLease, releaseBrowserLease, scrollUntil } from "./lib/browser-harness.js";
 
 const port = Number(readArg("--port") ?? 9223);
 const videoUrl = readArg("--video");
@@ -18,6 +28,14 @@ const userscriptPath = path.resolve(readArg("--userscript") ?? "dist/bilibili_bl
 const openFirstVideo = process.argv.includes("--open-first-video") || !videoUrl;
 const noInject = process.argv.includes("--no-inject");
 const endpoint = `http://127.0.0.1:${port}`;
+
+async function ensureDomHelpers(page) {
+  await page.evaluate(installBilibiliDomHelpers);
+}
+
+async function collectCommentTimingState(page, keyword) {
+  return page.evaluate(collectCommentTimingStateInBrowser, keyword);
+}
 
 async function getFirstVideo(page) {
   return page.evaluate(() => {
@@ -80,227 +98,48 @@ async function ensureVideoPage(page, recorder) {
 
 async function loadComments(page, recorder) {
   let snapshot = null;
-  for (const scrollY of [500, 900, 1300, 1800, 2400, 3200, 4200, 5600]) {
-    await page.evaluate((nextScrollY) => {
-      window.focus();
-      window.scrollTo(0, nextScrollY);
-      document.querySelector("video")?.pause();
-    }, scrollY).catch(() => {});
-    await page.waitForTimeout(1500);
-    snapshot = await collectCommentTimingState(page, "");
-    recorder.mark("comments.sample", {
-      scrollY,
-      commentCount: snapshot.commentCount,
-      placeholderCount: snapshot.placeholderCount,
-      overlayCount: snapshot.overlayCount,
-      firstText: cleanText(snapshot.firstComment?.text),
-    });
-    if (snapshot.firstComment?.text) {
-      return snapshot;
-    }
+  const scrollPositions = [500, 900, 1300, 1800, 2400, 3200, 4200, 5600];
+  let positionIndex = 0;
+
+  try {
+    await scrollUntil(
+      page,
+      async () => {
+        const scrollY = scrollPositions[Math.min(positionIndex, scrollPositions.length - 1)];
+        positionIndex += 1;
+        await page.evaluate((y) => {
+          window.focus();
+          window.scrollTo(0, y);
+          document.querySelector("video")?.pause();
+        }, scrollY).catch(() => {});
+        await page.waitForTimeout(1500);
+        snapshot = await collectCommentTimingState(page, "");
+        recorder.mark("comments.sample", {
+          scrollY,
+          commentCount: snapshot.commentCount,
+          placeholderCount: snapshot.placeholderCount,
+          overlayCount: snapshot.overlayCount,
+          firstText: cleanText(snapshot.firstComment?.text),
+        });
+        return Boolean(snapshot.firstComment?.text);
+      },
+      { maxAttempts: scrollPositions.length, useWheel: false, timeoutMs: 30_000 }
+    );
+  } catch {
+    snapshot = snapshot ?? (await collectCommentTimingState(page, ""));
   }
+
   return snapshot;
 }
 
-async function collectCommentTimingState(page, keyword) {
-  return page.evaluate((targetKeyword) => {
-    const clean = (value) => String(value || "").replace(/\s+/g, " ").trim();
-    const commentSelector = [
-      "div.reply-item",
-      "div.root-reply-container",
-      "div.sub-reply-item",
-      "bili-comment-renderer",
-      "bili-comment-reply-renderer",
-      "div.reply-wrap",
-      "bili-comment-thread-renderer",
-    ].join(",");
-
-    function queryAllDeep(root, selector, visited = new WeakSet()) {
-      const results = [];
-      if (!root?.querySelectorAll) {
-        return results;
-      }
-
-      if (root.matches?.(selector)) {
-        results.push(root);
-      }
-
-      if (root.shadowRoot && !visited.has(root.shadowRoot)) {
-        visited.add(root.shadowRoot);
-        results.push(...queryAllDeep(root.shadowRoot, selector, visited));
-      }
-
-      results.push(...root.querySelectorAll(selector));
-      root.querySelectorAll("*").forEach((element) => {
-        if (element.shadowRoot && !visited.has(element.shadowRoot)) {
-          visited.add(element.shadowRoot);
-          results.push(...queryAllDeep(element.shadowRoot, selector, visited));
-        }
-      });
-      return [...new Set(results)];
-    }
-
-    function readDataMessage(node, visited = new WeakSet()) {
-      if (!node || (node.nodeType !== 1 && node.nodeType !== 9 && node.nodeType !== 11)) {
-        return "";
-      }
-      const data = node.__data ?? node.data;
-      const message = data?.content?.message ?? data?.reply?.content?.message ?? data?.message;
-      if (message) {
-        return clean(message);
-      }
-      if (node.nodeType === 1 && node.shadowRoot && !visited.has(node.shadowRoot)) {
-        visited.add(node.shadowRoot);
-        const shadowMessage = readDataMessage(node.shadowRoot, visited);
-        if (shadowMessage) {
-          return shadowMessage;
-        }
-      }
-      for (const child of node.childNodes || []) {
-        const childMessage = readDataMessage(child, visited);
-        if (childMessage) {
-          return childMessage;
-        }
-      }
-      return "";
-    }
-
-    function readTextDeep(node, visited = new WeakSet()) {
-      if (!node) {
-        return "";
-      }
-      if (node.nodeType === 3) {
-        return node.nodeValue || "";
-      }
-      if (node.nodeType !== 1 && node.nodeType !== 9 && node.nodeType !== 11) {
-        return "";
-      }
-      const parts = [];
-      if (node.nodeType === 1 && node.shadowRoot && !visited.has(node.shadowRoot)) {
-        visited.add(node.shadowRoot);
-        parts.push(readTextDeep(node.shadowRoot, visited));
-      }
-      for (const child of node.childNodes || []) {
-        parts.push(readTextDeep(child, visited));
-      }
-      return clean(parts.join(" "));
-    }
-
-    function getCommentText(element) {
-      return clean(readDataMessage(element) || readTextDeep(element));
-    }
-
-    function getCommentId(element, index) {
-      const data = element.__data ?? element.data;
-      return String(
-        data?.rpid_str ??
-        data?.rpid ??
-        data?.id ??
-        element.getAttribute?.("data-rpid") ??
-        element.getAttribute?.("rpid") ??
-        `index:${index}`
-      );
-    }
-
-    function getPlaceholderNearComment(element) {
-      if (element.previousElementSibling?.classList?.contains("bbvt-comment-filter-overlay")) {
-        return element.previousElementSibling;
-      }
-      const parent = element.parentNode;
-      if (!parent?.querySelectorAll) {
-        return null;
-      }
-      const placeholders = [...parent.querySelectorAll(".bbvt-comment-filter-overlay")];
-      return placeholders.find((placeholder) => placeholder.textContent.includes(targetKeyword)) || placeholders[0] || null;
-    }
-
-    const comments = queryAllDeep(document, commentSelector)
-      .map((element, index) => ({
-        element,
-        id: getCommentId(element, index),
-        text: getCommentText(element),
-      }))
-      .filter((item) => item.text);
-
-    const placeholders = queryAllDeep(document, ".bbvt-comment-filter-overlay");
-    const matchingPlaceholder = targetKeyword
-      ? placeholders.find((item) => item.textContent.includes(targetKeyword)) || null
-      : placeholders[0] || null;
-    let target = null;
-
-    if (matchingPlaceholder?.nextElementSibling) {
-      const placeholderTargetElement = matchingPlaceholder.nextElementSibling;
-      target = comments.find((item) => item.element === placeholderTargetElement) || {
-        element: placeholderTargetElement,
-        id: getCommentId(placeholderTargetElement, -1),
-        text: getCommentText(placeholderTargetElement),
-      };
-    }
-
-    if (!target && targetKeyword) {
-      target = comments.find((item) =>
-        item.element.dataset.bbvtCommentBlocked === "true" && item.text.includes(targetKeyword)
-      ) || comments.find((item) => item.text.includes(targetKeyword)) || null;
-    }
-
-    if (!target) {
-      target = comments[0] || null;
-    }
-
-    const targetElement = target?.element ?? null;
-    const placeholder = matchingPlaceholder || (targetElement ? getPlaceholderNearComment(targetElement) : null);
-    const floatingButton = document.querySelector("#bbvtFloatingEntry .bbvt-fe-main");
-
-    return {
-      url: location.href,
-      title: document.title,
-      keyword: targetKeyword || null,
-      commentCount: comments.length,
-      placeholderCount: placeholders.length,
-      overlayCount: placeholders.length,
-      floatingEntryFound: Boolean(document.querySelector("#bbvtFloatingEntry")),
-      floatingButtonText: clean(floatingButton?.textContent),
-      storage: window.__bbvtTimingStorage?.GM_blockedParameter ?? null,
-      firstComment: comments[0]
-        ? {
-            id: comments[0].id,
-            text: comments[0].text.slice(0, 300),
-          }
-        : null,
-      target: target
-        ? {
-            id: target.id,
-            text: target.text.slice(0, 300),
-            display: targetElement.style.display || "",
-            computedDisplay: getComputedStyle(targetElement).display,
-            visibility: targetElement.style.visibility || "",
-            computedVisibility: getComputedStyle(targetElement).visibility,
-            blocked: targetElement.dataset.bbvtCommentBlocked === "true",
-            blockMode: targetElement.dataset.bbvtCommentBlockMode || "",
-            reason: targetElement.dataset.bbvtCommentBlockReason || "",
-            originalDisplayStored: Object.prototype.hasOwnProperty.call(
-              targetElement.dataset,
-              "bbvtCommentOriginalDisplay"
-            ),
-            placeholderFound: Boolean(placeholder),
-            placeholderText: clean(placeholder?.textContent),
-          }
-        : null,
-    };
-  }, keyword);
-}
-
 function deriveKeyword(commentText) {
-    const cleaned = cleanText(commentText, 80);
-    const contiguousText = cleaned
-        .split(/\s+/)
-        .find((part) => part.length >= 4);
-
-    const candidate = contiguousText || cleaned.replace(/\s+/g, "");
-    if (candidate.length <= 8) {
-        return candidate;
-    }
-    return candidate.slice(0, 8);
+  const cleaned = cleanText(commentText, 80);
+  const contiguousText = cleaned.split(/\s+/).find((part) => part.length >= 4);
+  const candidate = contiguousText || cleaned.replace(/\s+/g, "");
+  if (candidate.length <= 8) {
+    return candidate;
+  }
+  return candidate.slice(0, 8);
 }
 
 function createTimingSettings(keyword) {
@@ -334,33 +173,15 @@ function createTimingSettings(keyword) {
 }
 
 async function injectUserscript(page, userscriptSource, settings, recorder) {
-  await page.evaluate(({ source, initialSettings }) => {
-    window.__bbvtTimingStorage = {
-      GM_blockedParameter: JSON.parse(JSON.stringify(initialSettings)),
-    };
-    window.__bbvtTimingGmWrites = [];
-    window.GM_getValue = (key, defaultValue) => {
-      if (Object.prototype.hasOwnProperty.call(window.__bbvtTimingStorage, key)) {
-        return window.__bbvtTimingStorage[key];
-      }
-      return defaultValue;
-    };
-    window.GM_setValue = (key, value) => {
-      window.__bbvtTimingStorage[key] = JSON.parse(JSON.stringify(value));
-      window.__bbvtTimingGmWrites.push({ key, value, ts: Date.now() });
-    };
-    window.GM_addStyle = (css) => {
-      const style = document.createElement("style");
-      style.dataset.bbvtTimingStyle = "true";
-      style.textContent = css;
-      document.head.appendChild(style);
-      return style;
-    };
-    window.GM_registerMenuCommand = () => {};
-    window.__bbvtTimingInjectedAt = Date.now();
-    (0, eval)(`${source}\n//# sourceURL=bbvt-comment-timing.user.js`);
-    window.dispatchEvent(new Event("load"));
-  }, { source: userscriptSource, initialSettings: settings });
+  await page.evaluate(injectUserscriptInBrowser, {
+    source: userscriptSource,
+    initialSettings: settings,
+    storageKey: "__bbvtTimingStorage",
+    writeLogKey: "__bbvtTimingGmWrites",
+    injectedAtKey: "__bbvtTimingInjectedAt",
+    sourceUrl: "bbvt-comment-timing.user.js",
+    dispatchLoad: true,
+  });
 
   recorder.mark("userscript.injected", {
     keyword: settings.blockedCommentText_Array[0],
@@ -400,116 +221,11 @@ function summarizeState(label, state) {
 }
 
 async function moveAcrossPlaceholder(page, keyword) {
-  return page.evaluate(async (targetKeyword) => {
-    function queryAllDeep(root, selector, visited = new WeakSet()) {
-      const results = [];
-      if (!root?.querySelectorAll) {
-        return results;
-      }
-      if (root.matches?.(selector)) {
-        results.push(root);
-      }
-      if (root.shadowRoot && !visited.has(root.shadowRoot)) {
-        visited.add(root.shadowRoot);
-        results.push(...queryAllDeep(root.shadowRoot, selector, visited));
-      }
-      results.push(...root.querySelectorAll(selector));
-      root.querySelectorAll("*").forEach((element) => {
-        if (element.shadowRoot && !visited.has(element.shadowRoot)) {
-          visited.add(element.shadowRoot);
-          results.push(...queryAllDeep(element.shadowRoot, selector, visited));
-        }
-      });
-      return [...new Set(results)];
-    }
-
-    function readState(placeholder) {
-      const target = placeholder?.nextElementSibling ?? null;
-      const veil = placeholder?.querySelector?.(".bbvt-comment-filter-overlay-veil") ?? null;
-      return {
-        found: Boolean(placeholder),
-        targetVisibility: target ? getComputedStyle(target).visibility : "",
-        overlayOpacity: placeholder ? getComputedStyle(placeholder).opacity : "",
-        veilOpacity: veil ? getComputedStyle(veil).opacity : "",
-        overlayPeeking: placeholder?.dataset.bbvtCommentFilterPeeking === "true",
-        commentPeeking: target?.dataset.bbvtCommentFilterPeeking === "true",
-        detailsToggleFound: Boolean(placeholder?.querySelector?.(".bbvt-comment-filter-details-toggle")),
-        detailsPanelFound: Boolean(placeholder?.querySelector?.(".bbvt-comment-filter-details-panel")),
-        removeButtonFound: Boolean(placeholder?.querySelector?.(".bbvt-comment-filter-reason-remove")),
-      };
-    }
-
-    function findPlaceholder() {
-      const placeholders = queryAllDeep(document, ".bbvt-comment-filter-overlay");
-      return placeholders.find((item) => item.textContent.includes(targetKeyword)) || placeholders[0] || null;
-    }
-
-    let placeholder = findPlaceholder();
-    const moveEvent = () => new MouseEvent("mousemove", {
-      bubbles: true,
-      cancelable: true,
-      view: window,
-    });
-
-    placeholder?.dispatchEvent(moveEvent());
-    let afterBody = readState(placeholder);
-    const deadline = Date.now() + 1500;
-    while (
-      Date.now() < deadline &&
-      (
-        afterBody.targetVisibility === "hidden" ||
-        afterBody.veilOpacity === "1" ||
-        !afterBody.detailsToggleFound
-      )
-    ) {
-      await new Promise((resolve) => setTimeout(resolve, 100));
-      placeholder = findPlaceholder() || placeholder;
-      afterBody = readState(placeholder);
-    }
-
-    return { afterBody };
-  }, keyword);
+  return page.evaluate(moveAcrossPlaceholderInBrowser, keyword);
 }
 
 async function leavePlaceholder(page, keyword) {
-  return page.evaluate((targetKeyword) => {
-    function queryAllDeep(root, selector, visited = new WeakSet()) {
-      const results = [];
-      if (!root?.querySelectorAll) {
-        return results;
-      }
-      if (root.matches?.(selector)) {
-        results.push(root);
-      }
-      if (root.shadowRoot && !visited.has(root.shadowRoot)) {
-        visited.add(root.shadowRoot);
-        results.push(...queryAllDeep(root.shadowRoot, selector, visited));
-      }
-      results.push(...root.querySelectorAll(selector));
-      root.querySelectorAll("*").forEach((element) => {
-        if (element.shadowRoot && !visited.has(element.shadowRoot)) {
-          visited.add(element.shadowRoot);
-          results.push(...queryAllDeep(element.shadowRoot, selector, visited));
-        }
-      });
-      return [...new Set(results)];
-    }
-
-    const placeholders = queryAllDeep(document, ".bbvt-comment-filter-overlay");
-    const placeholder = placeholders.find((item) => item.textContent.includes(targetKeyword)) || placeholders[0] || null;
-    placeholder?.dispatchEvent(new MouseEvent("mouseleave", {
-      bubbles: false,
-      cancelable: true,
-      view: window,
-    }));
-    const target = placeholder?.nextElementSibling ?? null;
-    return {
-      found: Boolean(placeholder),
-      targetVisibility: target ? getComputedStyle(target).visibility : "",
-      overlayPeeking: placeholder?.dataset.bbvtCommentFilterPeeking === "true",
-      commentPeeking: target?.dataset.bbvtCommentFilterPeeking === "true",
-    };
-  }, keyword);
+  return page.evaluate(leavePlaceholderInBrowser, keyword);
 }
 
 async function toggleFloatingEntry(page) {
@@ -524,236 +240,11 @@ async function toggleFloatingEntry(page) {
 }
 
 async function clickReasonRemove(page, keyword) {
-  return page.evaluate((targetKeyword) => {
-    function queryAllDeep(root, selector, visited = new WeakSet()) {
-      const results = [];
-      if (!root?.querySelectorAll) {
-        return results;
-      }
-      if (root.matches?.(selector)) {
-        results.push(root);
-      }
-      if (root.shadowRoot && !visited.has(root.shadowRoot)) {
-        visited.add(root.shadowRoot);
-        results.push(...queryAllDeep(root.shadowRoot, selector, visited));
-      }
-      results.push(...root.querySelectorAll(selector));
-      root.querySelectorAll("*").forEach((element) => {
-        if (element.shadowRoot && !visited.has(element.shadowRoot)) {
-          visited.add(element.shadowRoot);
-          results.push(...queryAllDeep(element.shadowRoot, selector, visited));
-        }
-      });
-      return [...new Set(results)];
-    }
-
-    const placeholders = queryAllDeep(document, ".bbvt-comment-filter-overlay");
-    const placeholder = placeholders.find((item) => item.textContent.includes(targetKeyword)) || placeholders[0] || null;
-    const target = placeholder?.nextElementSibling ?? null;
-    const moveEvent = () => new MouseEvent("mousemove", {
-      bubbles: true,
-      cancelable: true,
-      view: window,
-    });
-    const toggle = placeholder?.querySelector?.(".bbvt-comment-filter-details-toggle") || null;
-    toggle?.dispatchEvent(moveEvent());
-    const afterToggleMove = {
-      targetVisibility: target ? getComputedStyle(target).visibility : "",
-      overlayPeeking: placeholder?.dataset.bbvtCommentFilterPeeking === "true",
-      commentPeeking: target?.dataset.bbvtCommentFilterPeeking === "true",
-    };
-    toggle?.click();
-    const panel = placeholder?.querySelector?.(".bbvt-comment-filter-details-panel") || null;
-    const button = panel?.querySelector?.(".bbvt-comment-filter-reason-remove") || null;
-    button?.dispatchEvent(new MouseEvent("mousemove", {
-      bubbles: true,
-      cancelable: true,
-      view: window,
-    }));
-    const afterControlMove = {
-      targetVisibility: target ? getComputedStyle(target).visibility : "",
-      overlayPeeking: placeholder?.dataset.bbvtCommentFilterPeeking === "true",
-      commentPeeking: target?.dataset.bbvtCommentFilterPeeking === "true",
-    };
-    button?.click();
-    return {
-      found: Boolean(placeholder),
-      toggleFound: Boolean(toggle),
-      panelFound: Boolean(panel),
-      buttonFound: Boolean(button),
-      afterToggleMove,
-      afterControlMove,
-    };
-  }, keyword);
+  return page.evaluate(clickReasonRemoveInBrowser, keyword);
 }
 
 async function checkCommentQuickBlockMarker(page, keyword) {
-  return page.evaluate(async (targetKeyword) => {
-    function queryAllDeep(root, selector, visited = new WeakSet()) {
-      const results = [];
-      if (!root?.querySelectorAll) {
-        return results;
-      }
-      if (root.matches?.(selector)) {
-        results.push(root);
-      }
-      if (root.shadowRoot && !visited.has(root.shadowRoot)) {
-        visited.add(root.shadowRoot);
-        results.push(...queryAllDeep(root.shadowRoot, selector, visited));
-      }
-      results.push(...root.querySelectorAll(selector));
-      root.querySelectorAll("*").forEach((element) => {
-        if (element.shadowRoot && !visited.has(element.shadowRoot)) {
-          visited.add(element.shadowRoot);
-          results.push(...queryAllDeep(element.shadowRoot, selector, visited));
-        }
-      });
-      return [...new Set(results)];
-    }
-
-    function readDataMessage(node, visited = new WeakSet()) {
-      if (!node || (node.nodeType !== 1 && node.nodeType !== 9 && node.nodeType !== 11)) {
-        return "";
-      }
-      const data = node.__data ?? node.data;
-      const message = data?.content?.message ?? data?.reply?.content?.message ?? data?.message;
-      if (message) {
-        return String(message || "").replace(/\s+/g, " ").trim();
-      }
-      if (node.nodeType === 1 && node.shadowRoot && !visited.has(node.shadowRoot)) {
-        visited.add(node.shadowRoot);
-        const shadowMessage = readDataMessage(node.shadowRoot, visited);
-        if (shadowMessage) {
-          return shadowMessage;
-        }
-      }
-      for (const child of node.childNodes || []) {
-        const childMessage = readDataMessage(child, visited);
-        if (childMessage) {
-          return childMessage;
-        }
-      }
-      return "";
-    }
-
-    function readTextDeep(node, visited = new WeakSet()) {
-      if (!node) {
-        return "";
-      }
-      if (node.nodeType === 3) {
-        return node.nodeValue || "";
-      }
-      if (node.nodeType !== 1 && node.nodeType !== 9 && node.nodeType !== 11) {
-        return "";
-      }
-      const parts = [];
-      if (node.nodeType === 1 && node.shadowRoot && !visited.has(node.shadowRoot)) {
-        visited.add(node.shadowRoot);
-        parts.push(readTextDeep(node.shadowRoot, visited));
-      }
-      for (const child of node.childNodes || []) {
-        parts.push(readTextDeep(child, visited));
-      }
-      return String(parts.join(" ")).replace(/\s+/g, " ").trim();
-    }
-
-    const commentSelector = [
-      "div.reply-item",
-      "div.root-reply-container",
-      "div.sub-reply-item",
-      "bili-comment-renderer",
-      "bili-comment-reply-renderer",
-    ].join(",");
-    const comments = queryAllDeep(document, commentSelector)
-      .map((element) => ({
-        element,
-        text: readDataMessage(element) || readTextDeep(element),
-      }))
-      .filter((item) => item.text && item.element.dataset.bbvtCommentBlocked !== "true");
-    const target = comments.find((item) => item.text.includes(targetKeyword)) || comments[0] || null;
-    if (!target) {
-      return { targetFound: false };
-    }
-
-    function readAnchorState() {
-      const trigger = document.getElementById("bbvtCommentQuickBlockTrigger");
-      const marker = document.getElementById("bbvtCommentQuickBlockTargetMarker");
-      const targetRect = target.element.getBoundingClientRect?.();
-      const triggerRect = trigger?.getBoundingClientRect?.();
-      const markerRect = marker?.getBoundingClientRect?.();
-      return {
-        triggerFound: Boolean(trigger && !trigger.hidden),
-        markerFound: Boolean(marker),
-        markerWidth: markerRect?.width ?? 0,
-        markerHeight: markerRect?.height ?? 0,
-        targetMarked: target.element.dataset.bbvtCommentQuickBlockTarget === "true",
-        markerOffsetTop: markerRect && targetRect ? Math.round(markerRect.top - targetRect.top) : null,
-        markerOffsetLeft: markerRect && targetRect ? Math.round(markerRect.left - targetRect.left) : null,
-        triggerOffsetTop: triggerRect && targetRect ? Math.round(triggerRect.top - targetRect.top) : null,
-        triggerOffsetRight: triggerRect && targetRect ? Math.round(targetRect.right - triggerRect.right) : null,
-      };
-    }
-
-    function offsetsStable(before, after) {
-      const keys = ["markerOffsetTop", "markerOffsetLeft", "triggerOffsetTop", "triggerOffsetRight"];
-      return keys.every((key) => (
-        Number.isFinite(before?.[key]) &&
-        Number.isFinite(after?.[key]) &&
-        Math.abs(before[key] - after[key]) <= 2
-      ));
-    }
-
-    target.element.dispatchEvent(new MouseEvent("mouseenter", {
-      bubbles: false,
-      cancelable: true,
-      view: window,
-    }));
-    await new Promise((resolve) => setTimeout(resolve, 120));
-
-    const beforeScroll = readAnchorState();
-    const startScrollY = window.scrollY;
-    const targetRectBeforeScroll = target.element.getBoundingClientRect?.();
-    const safeDownDelta = Math.min(40, Math.max(0, Math.floor((targetRectBeforeScroll?.bottom ?? 0) - 12)));
-    const safeUpDelta = Math.min(
-      40,
-      Math.max(0, Math.floor((window.innerHeight || 800) - (targetRectBeforeScroll?.top ?? 0) - 12)),
-      Math.max(0, Math.floor(startScrollY))
-    );
-    const scrollDelta = safeDownDelta >= 12 ? safeDownDelta : -safeUpDelta;
-    if (Math.abs(scrollDelta) > 0) {
-      window.scrollBy(0, scrollDelta);
-    }
-    await new Promise((resolve) => setTimeout(resolve, 160));
-    const afterScroll = readAnchorState();
-    window.scrollTo(window.scrollX, startScrollY);
-    await new Promise((resolve) => setTimeout(resolve, 120));
-
-    const afterEnter = {
-      ...readAnchorState(),
-      beforeScroll,
-      afterScroll,
-      scrollDelta,
-      anchorStableAfterScroll: offsetsStable(beforeScroll, afterScroll),
-      targetText: target.text.slice(0, 160),
-    };
-
-    target.element.dispatchEvent(new MouseEvent("mouseleave", {
-      bubbles: false,
-      cancelable: true,
-      view: window,
-    }));
-    await new Promise((resolve) => setTimeout(resolve, 260));
-
-    return {
-      targetFound: true,
-      afterEnter,
-      afterLeave: {
-        markerFound: Boolean(document.getElementById("bbvtCommentQuickBlockTargetMarker")),
-        triggerHidden: document.getElementById("bbvtCommentQuickBlockTrigger")?.hidden ?? true,
-        targetMarked: target.element.dataset.bbvtCommentQuickBlockTarget === "true",
-      },
-    };
-  }, keyword);
+  return page.evaluate(checkCommentQuickBlockMarkerInBrowser, keyword);
 }
 
 async function triggerRefresh(page) {
@@ -765,6 +256,10 @@ async function triggerRefresh(page) {
 
 async function runTiming(runDir, recorder) {
   let browser;
+  await acquireBrowserLease(port, "pw:comment-timing", {
+    pageUrl: videoUrl ?? null,
+  });
+
   try {
     recorder.mark("run.start", {
       endpoint,
@@ -782,9 +277,11 @@ async function runTiming(runDir, recorder) {
     recorder.mark("browser.connected", { contextCount: browser.contexts().length });
 
     const page = await selectPage(context, ["www.bilibili.com/video/", "bilibili.com"]);
+    await page.bringToFront();
     recorder.mark("page.selected", { url: page.url() });
 
     const openedVideo = await ensureVideoPage(page, recorder);
+    await ensureDomHelpers(page);
     const video = await page.evaluate(() => ({
       url: location.href,
       title: document.title,
@@ -926,7 +423,7 @@ async function runTiming(runDir, recorder) {
         state.target.blocked === false &&
         state.target.computedVisibility !== "hidden" &&
         state.target.placeholderFound === false &&
-        state.floatingButtonText === "关",
+        state.floatingButtonText.startsWith("关"),
       recorder
     );
 
@@ -947,66 +444,31 @@ async function runTiming(runDir, recorder) {
       },
     };
 
-    recorder.mark("run.end", {
-      ok: true,
-      bvid: result.video.bvid,
-      keyword,
-      placeholderCount: restored.placeholderCount,
-    });
-    const paths = await writeRunFiles(runDir, result, recorder.events);
-    return { result, paths };
+    recorder.mark("run.end", { ok: true, keyword });
+    await writeRunFiles(runDir, result, recorder.events);
+    return result;
   } catch (error) {
-    recorder.mark("run.error", { message: error.message });
-    const result = {
-      ok: false,
-      endpoint,
-      error: {
-        message: error.message,
-        stack: error.stack,
-      },
-    };
-    const paths = await writeRunFiles(runDir, result, recorder.events);
-    error.artifactPaths = paths;
+    recorder.mark("run.end", { ok: false, error: error.message });
+    await writeRunFiles(runDir, { ok: false, error: error.message }, recorder.events);
     throw error;
   } finally {
-    await browser?.close().catch(() => {});
+    if (browser) {
+      await browser.close().catch(() => {});
+    }
+    await releaseBrowserLease(port);
   }
 }
 
 async function main() {
-  const runDir = path.join(outputRoot, createRunId());
+  const runId = createRunId();
+  const runDir = path.join(outputRoot, runId);
   await fs.mkdir(runDir, { recursive: true });
   const recorder = createRecorder();
-  const { result, paths } = await runTiming(runDir, recorder);
-
-  console.log(
-    JSON.stringify(
-      {
-        ok: result.ok,
-        artifactDir: toRelative(runDir),
-        resultPath: toRelative(paths.resultPath),
-        eventsPath: toRelative(paths.eventsPath),
-        endpoint,
-        bvid: result.video.bvid,
-        aid: result.video.aid,
-        keyword: result.keyword,
-        final: {
-          placeholderCount: result.states.restored.placeholderCount,
-          floatingButtonText: result.states.restored.floatingButtonText,
-          targetDisplay: result.states.restored.target?.computedDisplay ?? "",
-          targetVisibility: result.states.restored.target?.computedVisibility ?? "",
-        },
-      },
-      null,
-      2
-    )
-  );
+  const result = await runTiming(runDir, recorder);
+  console.log(JSON.stringify({ ok: result.ok, runDir: toRelative(runDir), keyword: result.keyword }, null, 2));
 }
 
 main().catch((error) => {
-  if (error.artifactPaths) {
-    console.error(`Comment timing smoke failed. result=${toRelative(error.artifactPaths.resultPath)}`);
-  }
   console.error(error.stack || error.message);
   process.exit(1);
 });

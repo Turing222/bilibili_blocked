@@ -1,6 +1,7 @@
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
 import http from "node:http";
+import { acquireBrowserLease, releaseBrowserLease } from "../../scripts/lib/browser-harness.js";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -344,6 +345,7 @@ async function inspectVideoAndComments(mcp) {
 
 async function main() {
   await requestJson("/json/version");
+  await acquireBrowserLease(port, "mcp:probe-collect", { videoUrl: videoUrl ?? null });
   const mcp = new McpBrowser();
   try {
     await pickPage(mcp);
@@ -381,6 +383,7 @@ async function main() {
     console.log(JSON.stringify(summary, null, 2));
   } finally {
     await mcp.close();
+    await releaseBrowserLease(port);
   }
 }
 

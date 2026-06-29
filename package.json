@@ -18,7 +18,8 @@
     "pw:video-card-timing": "node scripts/video-card-timing-smoke.mjs",
     "pw:oracle-compare": "node tools/bilibili-browser/oracle-mcp-compare.mjs",
     "pw:mcp-probe": "node tools/bilibili-browser/mcp-probe-collect.mjs",
-    "pw:normalize-results": "node tools/bilibili-browser/normalize-results.mjs"
+    "pw:normalize-results": "node tools/bilibili-browser/normalize-results.mjs",
+    "pw:baseline": "node scripts/capture-smoke-baselines.mjs"
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",

@@ -35,10 +35,23 @@ export default [
         }
     },
     {
-        files: ["scripts/lib/**/*.js"],
+        files: ["scripts/lib/harness.js", "scripts/lib/browser-harness.js"],
         languageOptions: {
             globals: {
                 ...globals.node
+            }
+        },
+        rules: {
+            "no-unused-vars": "warn",
+            "no-undef": "error"
+        }
+    },
+    {
+        files: ["scripts/lib/bilibili-dom.js", "scripts/lib/userscript-runtime.js"],
+        languageOptions: {
+            globals: {
+                ...globals.browser,
+                ...globals.es2021
             }
         },
         rules: {

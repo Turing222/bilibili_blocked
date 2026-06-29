@@ -10,6 +10,8 @@ import {
   writeRunFiles,
   selectPage,
 } from "./lib/harness.js";
+import { injectUserscriptInBrowser } from "./lib/userscript-runtime.js";
+import { acquireBrowserLease, releaseBrowserLease, scrollUntil } from "./lib/browser-harness.js";
 
 const port = Number(readArg("--port") ?? 9223);
 const pageUrl = readArg("--url") ?? "https://www.bilibili.com/";
@@ -276,30 +278,15 @@ function createTimingSettings() {
 }
 
 async function injectUserscript(page, userscriptSource, settings, recorder) {
-  await page.evaluate(({ source, initialSettings }) => {
-    window.__bbvtVideoTimingStorage = {
-      GM_blockedParameter: JSON.parse(JSON.stringify(initialSettings)),
-    };
-    window.GM_getValue = (key, defaultValue) => {
-      if (Object.prototype.hasOwnProperty.call(window.__bbvtVideoTimingStorage, key)) {
-        return window.__bbvtVideoTimingStorage[key];
-      }
-      return defaultValue;
-    };
-    window.GM_setValue = (key, value) => {
-      window.__bbvtVideoTimingStorage[key] = JSON.parse(JSON.stringify(value));
-    };
-    window.GM_addStyle = (css) => {
-      const style = document.createElement("style");
-      style.dataset.bbvtTimingStyle = "true";
-      style.textContent = css;
-      document.head.appendChild(style);
-      return style;
-    };
-    window.GM_registerMenuCommand = () => {};
-    (0, eval)(`${source}\n//# sourceURL=bbvt-video-card-timing.user.js`);
-    window.dispatchEvent(new Event("load"));
-  }, { source: userscriptSource, initialSettings: settings });
+  await page.evaluate(injectUserscriptInBrowser, {
+    source: userscriptSource,
+    initialSettings: settings,
+    storageKey: "__bbvtVideoTimingStorage",
+    writeLogKey: "__bbvtVideoTimingGmWrites",
+    injectedAtKey: "__bbvtVideoTimingInjectedAt",
+    sourceUrl: "bbvt-video-card-timing.user.js",
+    dispatchLoad: true,
+  });
 
   recorder.mark("userscript.injected", {
     blockedTitleRule: settings.blockedTitle_Array[0],
@@ -340,29 +327,39 @@ function summarizeSnapshot(label, snapshot) {
 }
 
 async function scrollForMoreCards(page, recorder) {
-  for (let index = 0; index < 6; index++) {
-    await page.evaluate(() => {
-      window.scrollTo(0, document.body.scrollHeight);
-    }).catch(() => {});
-    await page.waitForTimeout(1800);
-    const snapshot = await readSnapshot(page);
-    recorder.mark("page.scroll", {
-      step: index + 1,
-      totalCardCount: snapshot?.totalCardCount ?? 0,
-      addedCardCount: snapshot?.addedCardCount ?? 0,
-      addedOverlayCount: snapshot?.addedOverlayCount ?? 0,
-      addedOverlayLatencies: snapshot?.addedOverlayLatencies?.slice(0, 5) ?? [],
-    });
-    if ((snapshot?.addedOverlayCount ?? 0) > 0) {
-      return snapshot;
-    }
+  let snapshot = null;
+
+  try {
+    await scrollUntil(
+      page,
+      async (attempt) => {
+        await page.evaluate(() => {
+          window.scrollTo(0, document.body.scrollHeight);
+        }).catch(() => {});
+        await page.waitForTimeout(1500);
+        snapshot = await readSnapshot(page);
+        recorder.mark("page.scroll", {
+          step: attempt + 1,
+          totalCardCount: snapshot?.totalCardCount ?? 0,
+          addedCardCount: snapshot?.addedCardCount ?? 0,
+          addedOverlayCount: snapshot?.addedOverlayCount ?? 0,
+          addedOverlayLatencies: snapshot?.addedOverlayLatencies?.slice(0, 5) ?? [],
+        });
+        return (snapshot?.addedOverlayCount ?? 0) > 0;
+      },
+      { maxAttempts: 6, useWheel: false, timeoutMs: 15_000 }
+    );
+  } catch {
+    snapshot = snapshot ?? (await readSnapshot(page));
   }
 
-  return readSnapshot(page);
+  return snapshot;
 }
 
 async function runTiming(runDir, recorder) {
   let browser;
+  await acquireBrowserLease(port, "pw:video-card-timing", { pageUrl });
+
   try {
     recorder.mark("run.start", {
       endpoint,
@@ -437,6 +434,7 @@ async function runTiming(runDir, recorder) {
     throw error;
   } finally {
     await browser?.close().catch(() => {});
+    await releaseBrowserLease(port);
   }
 }
 
