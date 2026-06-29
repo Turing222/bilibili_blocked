@@ -103,15 +103,17 @@ still lives in `inspect-comments.mjs`; shared DOM extractors are in
 `scripts/lib/bilibili-dom.js`.
 ## Phase 1: Chrome DevTools MCP
 
-> **Status (2026-06-29)**: Steps 1–4 ✅ (`pw:oracle-compare` → `diffs: []`). Step 5 agent-layer ⏳ optional manual check after MCP reload.
+> **Status (2026-06-29)**: Steps 1–5 ✅ (`pw:oracle-compare` → `diffs: []`; agent-layer MCP walkthrough completed in Codex Desktop after restart).
 
 Stage 1 wires up `chrome-devtools-mcp@1.4.0` (full mode) against the same
 9223 browser profile. Config lives in [`.cursor/mcp.json`](../../.cursor/mcp.json)
-and [`.codex/config.toml`](../../.codex/config.toml).
+and [`.codex/config.toml`](../../.codex/config.toml). Codex Desktop may need the
+same server entry in `%USERPROFILE%\.codex\config.toml`; restart Codex after
+editing it.
 
 1. Start Chrome: `npm run pw:chrome` (binds `127.0.0.1:9223` only).
 2. Log in to Bilibili manually in that window.
-3. Reload MCP in Cursor so `chrome-devtools` connects to `--browser-url=http://127.0.0.1:9223`.
+3. Reload MCP in Cursor/Codex so `chrome-devtools` connects to `--browser-url=http://127.0.0.1:9223`.
 4. Tool-layer oracle diff (no agent):
 
 ```powershell
@@ -125,10 +127,13 @@ Normalize-only diff:
 npm run pw:normalize-results -- --left artifacts/mcp-oracle/<ts>/oracle.json --right artifacts/mcp-oracle/<ts>/mcp.json
 ```
 
-5. Agent-layer check (after MCP reload): make sure no Playwright smoke or
+5. Agent-layer check (validated 2026-06-29): make sure no Playwright smoke or
    scripted probe is running, then ask the agent to run
    `list_pages → select_page(bringToFront) → navigate_page → evaluate_script(bili-comments) → list_network_requests`
    and interpret the result. See [`../../docs/tool-layer-evolution-plan.md`](../../docs/tool-layer-evolution-plan.md) §7 阶段 1.
+   The recorded walkthrough selected `BV1Vk7M6tEgx`, read 21 comment threads
+   from `bili-comments`, and found `/x/v2/reply/subject/description` plus
+   `/x/v2/reply/wbi/main` returning 200.
    The MCP server itself does not acquire this repo's browser lease; the
    mutual exclusion rule is manual for this step.
 

@@ -10,33 +10,20 @@ import {
   writeRunFiles,
   selectPage,
 } from "./lib/harness.js";
+import {
+  acquireBrowserLease,
+  getFirstVisibleBilibiliVideoLink,
+  isBilibiliReplyResponse,
+  releaseBrowserLease,
+  summarizeNetworkResponse,
+  waitForBilibiliReplyResponse,
+} from "./lib/browser-harness.js";
 
 const port = Number(readArg("--port") ?? 9223);
 const videoUrl = readArg("--video");
 const outputRoot = path.resolve(readArg("--output-dir") ?? "artifacts/playwright/runs");
 const openFirstVideo = process.argv.includes("--open-first-video") || !videoUrl;
 const endpoint = `http://127.0.0.1:${port}`;
-
-async function getFirstVideo(page) {
-  return page.evaluate(() => {
-    for (const link of document.querySelectorAll('a[href*="/video/"]')) {
-      const rect = link.getBoundingClientRect();
-      if (rect.width < 20 || rect.height < 20) {
-        continue;
-      }
-      const url = new URL(link.getAttribute("href"), location.href);
-      if (url.hostname !== "www.bilibili.com" || !url.pathname.startsWith("/video/BV")) {
-        continue;
-      }
-      const href = url.href.split("?")[0];
-      const text = (link.innerText || link.title || link.getAttribute("aria-label") || "")
-        .replace(/\s+/g, " ")
-        .trim();
-      return { href, text };
-    }
-    return null;
-  });
-}
 
 async function collectCommentSnapshot(page) {
   return page.evaluate(() => {
@@ -70,7 +57,11 @@ async function collectCommentSnapshot(page) {
 
 async function runSmoke(runDir, recorder) {
   let browser;
+  let lease;
   try {
+    lease = await acquireBrowserLease(port, "pw:smoke", {
+      videoUrl: videoUrl ?? null,
+    });
     recorder.mark("run.start", { endpoint, videoUrl: videoUrl ?? null });
     browser = await chromium.connectOverCDP(endpoint);
     const context = browser.contexts()[0];
@@ -81,9 +72,8 @@ async function runSmoke(runDir, recorder) {
 
     const network = [];
     context.on("response", (response) => {
-      const url = response.url();
-      if (url.includes("/x/v2/reply") || url.includes("/x/v2/reply/main")) {
-        const item = { status: response.status(), url };
+      if (isBilibiliReplyResponse(response, { requireOk: false })) {
+        const item = summarizeNetworkResponse(response);
         network.push(item);
         recorder.mark("network.response", item);
       }
@@ -109,7 +99,7 @@ async function runSmoke(runDir, recorder) {
     const currentPageIsVideo = page.url().startsWith("https://www.bilibili.com/video/BV");
     let openedVideo = videoUrl ? { href: videoUrl, text: "" } : null;
     if (!openedVideo && openFirstVideo && !currentPageIsVideo) {
-      openedVideo = await getFirstVideo(page);
+      openedVideo = await getFirstVisibleBilibiliVideoLink(page);
       recorder.mark("video.candidate", { href: openedVideo?.href ?? null });
     }
 
@@ -134,8 +124,28 @@ async function runSmoke(runDir, recorder) {
 
     let commentSnapshot = null;
     for (const y of [500, 900, 1300, 1800, 2400, 3200, 4200]) {
-      await page.evaluate((scrollY) => window.scrollTo(0, scrollY), y);
-      await page.waitForTimeout(1500);
+      const response = await waitForBilibiliReplyResponse(
+        page,
+        () => page.evaluate((scrollY) => window.scrollTo(0, scrollY), y),
+        { timeoutMs: 3000 }
+      );
+
+      if (response) {
+        recorder.mark("network.reply.awaited", summarizeNetworkResponse(response));
+      } else {
+        recorder.mark("network.reply.timeout", { scrollY: y, timeoutMs: 3000 });
+        await page.waitForTimeout(500);
+      }
+
+      await page.waitForFunction(
+        () => {
+          const host = document.querySelector("bili-comments");
+          return !!host?.shadowRoot?.querySelector("bili-comment-thread-renderer");
+        },
+        null,
+        { timeout: 1500 }
+      ).catch(() => {});
+
       commentSnapshot = await collectCommentSnapshot(page);
       recorder.mark("comments.sample", {
         scrollY: y,
@@ -190,6 +200,9 @@ async function runSmoke(runDir, recorder) {
     throw error;
   } finally {
     await browser?.close().catch(() => {});
+    if (lease) {
+      await releaseBrowserLease(port, lease);
+    }
   }
 }
 

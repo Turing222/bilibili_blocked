@@ -13,13 +13,17 @@ import {
 import {
   installBilibiliDomHelpers,
   collectCommentTimingState as collectCommentTimingStateInBrowser,
-  moveAcrossPlaceholderInBrowser,
-  leavePlaceholderInBrowser,
-  clickReasonRemoveInBrowser,
   checkCommentQuickBlockMarkerInBrowser,
 } from "./lib/bilibili-dom.js";
 import { injectUserscriptInBrowser } from "./lib/userscript-runtime.js";
-import { acquireBrowserLease, releaseBrowserLease, scrollUntil } from "./lib/browser-harness.js";
+import {
+  acquireBrowserLease,
+  getFirstVisibleBilibiliVideoLink,
+  releaseBrowserLease,
+  scrollUntil,
+  summarizeNetworkResponse,
+  waitForBilibiliReplyResponse,
+} from "./lib/browser-harness.js";
 
 const port = Number(readArg("--port") ?? 9223);
 const videoUrl = readArg("--video");
@@ -28,6 +32,7 @@ const userscriptPath = path.resolve(readArg("--userscript") ?? "dist/bilibili_bl
 const openFirstVideo = process.argv.includes("--open-first-video") || !videoUrl;
 const noInject = process.argv.includes("--no-inject");
 const endpoint = `http://127.0.0.1:${port}`;
+const commentOverlaySmokeSelector = '[data-bbvt-smoke-target="comment-overlay"]';
 
 async function ensureDomHelpers(page) {
   await page.evaluate(installBilibiliDomHelpers);
@@ -35,27 +40,6 @@ async function ensureDomHelpers(page) {
 
 async function collectCommentTimingState(page, keyword) {
   return page.evaluate(collectCommentTimingStateInBrowser, keyword);
-}
-
-async function getFirstVideo(page) {
-  return page.evaluate(() => {
-    for (const link of document.querySelectorAll('a[href*="/video/"]')) {
-      const rect = link.getBoundingClientRect();
-      if (rect.width < 20 || rect.height < 20) {
-        continue;
-      }
-      const url = new URL(link.getAttribute("href"), location.href);
-      if (url.hostname !== "www.bilibili.com" || !url.pathname.startsWith("/video/BV")) {
-        continue;
-      }
-      const href = url.href.split("?")[0];
-      const text = (link.innerText || link.title || link.getAttribute("aria-label") || "")
-        .replace(/\s+/g, " ")
-        .trim();
-      return { href, text };
-    }
-    return null;
-  });
 }
 
 async function ensureVideoPage(page, recorder) {
@@ -86,7 +70,7 @@ async function ensureVideoPage(page, recorder) {
     return null;
   }
 
-  const firstVideo = await getFirstVideo(page);
+  const firstVideo = await getFirstVisibleBilibiliVideoLink(page);
   recorder.mark("video.candidate", { href: firstVideo?.href ?? null, text: cleanText(firstVideo?.text) });
   if (firstVideo?.href) {
     await page.goto(firstVideo.href, { waitUntil: "domcontentloaded", timeout: 45000 }).catch(() => {});
@@ -98,21 +82,55 @@ async function ensureVideoPage(page, recorder) {
 
 async function loadComments(page, recorder) {
   let snapshot = null;
+  const replyResponses = [];
   const scrollPositions = [500, 900, 1300, 1800, 2400, 3200, 4200, 5600];
   let positionIndex = 0;
 
   try {
+    snapshot = await collectCommentTimingState(page, "");
+    if (snapshot.firstComment?.text) {
+      recorder.mark("comments.already-loaded", {
+        commentCount: snapshot.commentCount,
+        firstText: cleanText(snapshot.firstComment?.text),
+      });
+      return { ...snapshot, replyResponses };
+    }
+
     await scrollUntil(
       page,
       async () => {
         const scrollY = scrollPositions[Math.min(positionIndex, scrollPositions.length - 1)];
         positionIndex += 1;
-        await page.evaluate((y) => {
-          window.focus();
-          window.scrollTo(0, y);
-          document.querySelector("video")?.pause();
-        }, scrollY).catch(() => {});
-        await page.waitForTimeout(1500);
+
+        const response = await waitForBilibiliReplyResponse(
+          page,
+          () =>
+            page.evaluate((y) => {
+              window.focus();
+              window.scrollTo(0, y);
+              document.querySelector("video")?.pause();
+            }, scrollY),
+          { timeoutMs: 3000 }
+        );
+
+        if (response) {
+          const item = summarizeNetworkResponse(response);
+          replyResponses.push(item);
+          recorder.mark("network.reply.response", item);
+        } else {
+          recorder.mark("network.reply.timeout", { scrollY, timeoutMs: 3000 });
+          await page.waitForTimeout(500);
+        }
+
+        await page.waitForFunction(
+          () => {
+            const host = document.querySelector("bili-comments");
+            return !!host?.shadowRoot?.querySelector("bili-comment-thread-renderer");
+          },
+          null,
+          { timeout: 1500 }
+        ).catch(() => {});
+
         snapshot = await collectCommentTimingState(page, "");
         recorder.mark("comments.sample", {
           scrollY,
@@ -129,7 +147,7 @@ async function loadComments(page, recorder) {
     snapshot = snapshot ?? (await collectCommentTimingState(page, ""));
   }
 
-  return snapshot;
+  return { ...(snapshot ?? {}), replyResponses };
 }
 
 function deriveKeyword(commentText) {
@@ -220,30 +238,172 @@ function summarizeState(label, state) {
   };
 }
 
+function targetCommentOverlay(page) {
+  return page.locator(commentOverlaySmokeSelector).first();
+}
+
+async function markTargetCommentOverlay(page, keyword) {
+  return page.evaluate(
+    ({ targetKeyword, markerSelector }) => {
+      if (!window.__bbvtDom?.installed) {
+        throw new Error("Bilibili DOM helpers are not installed. Call installBilibiliDomHelpers first.");
+      }
+
+      window.__bbvtDom.queryAllDeep(document, markerSelector).forEach((element) => {
+        delete element.dataset.bbvtSmokeTarget;
+      });
+
+      const placeholder = window.__bbvtDom.findPlaceholder(targetKeyword);
+      if (!placeholder) {
+        return false;
+      }
+
+      placeholder.dataset.bbvtSmokeTarget = "comment-overlay";
+      return true;
+    },
+    { targetKeyword: keyword, markerSelector: commentOverlaySmokeSelector }
+  );
+}
+
+async function readTargetCommentOverlayState(page) {
+  return page.evaluate((markerSelector) => {
+    const placeholder = window.__bbvtDom?.queryAllDeep?.(document, markerSelector)?.[0] ?? null;
+    const target = placeholder?.nextElementSibling ?? null;
+    const veil = placeholder?.querySelector?.(".bbvt-comment-filter-overlay-veil") ?? null;
+    return {
+      found: Boolean(placeholder),
+      targetVisibility: target ? getComputedStyle(target).visibility : "",
+      overlayOpacity: placeholder ? getComputedStyle(placeholder).opacity : "",
+      veilOpacity: veil ? getComputedStyle(veil).opacity : "",
+      overlayPeeking: placeholder?.dataset.bbvtCommentFilterPeeking === "true",
+      commentPeeking: target?.dataset.bbvtCommentFilterPeeking === "true",
+      detailsToggleFound: Boolean(placeholder?.querySelector?.(".bbvt-comment-filter-details-toggle")),
+      detailsPanelFound: Boolean(placeholder?.querySelector?.(".bbvt-comment-filter-details-panel")),
+      removeButtonFound: Boolean(placeholder?.querySelector?.(".bbvt-comment-filter-reason-remove")),
+    };
+  }, commentOverlaySmokeSelector);
+}
+
 async function moveAcrossPlaceholder(page, keyword) {
-  return page.evaluate(moveAcrossPlaceholderInBrowser, keyword);
+  const found = await markTargetCommentOverlay(page, keyword);
+  if (!found) {
+    return { afterBody: { found: false } };
+  }
+
+  await targetCommentOverlay(page).hover({ timeout: 3000 });
+  await page
+    .waitForFunction(
+      (markerSelector) => {
+        const placeholder = window.__bbvtDom?.queryAllDeep?.(document, markerSelector)?.[0] ?? null;
+        const target = placeholder?.nextElementSibling ?? null;
+        const veil = placeholder?.querySelector?.(".bbvt-comment-filter-overlay-veil") ?? null;
+        return (
+          placeholder &&
+          target &&
+          getComputedStyle(target).visibility !== "hidden" &&
+          getComputedStyle(veil).opacity !== "1" &&
+          Boolean(placeholder.querySelector(".bbvt-comment-filter-details-toggle"))
+        );
+      },
+      commentOverlaySmokeSelector,
+      { timeout: 1500 }
+    )
+    .catch(() => {});
+
+  return { afterBody: await readTargetCommentOverlayState(page) };
 }
 
 async function leavePlaceholder(page, keyword) {
-  return page.evaluate(leavePlaceholderInBrowser, keyword);
+  const found = await markTargetCommentOverlay(page, keyword);
+  if (!found) {
+    return { found: false };
+  }
+
+  await page.mouse.move(1, 1);
+  await page
+    .waitForFunction(
+      (markerSelector) => {
+        const placeholder = window.__bbvtDom?.queryAllDeep?.(document, markerSelector)?.[0] ?? null;
+        const target = placeholder?.nextElementSibling ?? null;
+        return (
+          placeholder &&
+          target &&
+          getComputedStyle(target).visibility === "hidden" &&
+          placeholder.dataset.bbvtCommentFilterPeeking !== "true" &&
+          target.dataset.bbvtCommentFilterPeeking !== "true"
+        );
+      },
+      commentOverlaySmokeSelector,
+      { timeout: 1500 }
+    )
+    .catch(() => {});
+
+  return await readTargetCommentOverlayState(page);
 }
 
 async function toggleFloatingEntry(page) {
-  return page.evaluate(() => {
-    const button = document.querySelector("#bbvtFloatingEntry .bbvt-fe-main");
-    if (!button) {
-      return false;
-    }
-    button.click();
-    return true;
-  });
+  const button = page.locator("#bbvtFloatingEntry .bbvt-fe-main").first();
+  if ((await button.count().catch(() => 0)) === 0) {
+    return { clicked: false, method: null, beforeText: "", afterText: "" };
+  }
+
+  const beforeText = cleanText(await button.innerText({ timeout: 1000 }).catch(() => ""));
+  await button.click({ timeout: 3000 });
+  await page.waitForTimeout(250);
+  let afterText = cleanText(await button.innerText({ timeout: 1000 }).catch(() => ""));
+
+  if (!afterText.startsWith("关") && afterText === beforeText) {
+    await button.focus({ timeout: 3000 });
+    await button.press("Enter", { timeout: 3000 });
+    await page.waitForTimeout(250);
+    afterText = cleanText(await button.innerText({ timeout: 1000 }).catch(() => ""));
+    return { clicked: true, method: "keyboard", beforeText, afterText };
+  }
+
+  return { clicked: true, method: "click", beforeText, afterText };
 }
 
 async function clickReasonRemove(page, keyword) {
-  return page.evaluate(clickReasonRemoveInBrowser, keyword);
+  const found = await markTargetCommentOverlay(page, keyword);
+  if (!found) {
+    return { found: false };
+  }
+
+  const overlay = targetCommentOverlay(page);
+  const toggle = overlay.locator(".bbvt-comment-filter-details-toggle").first();
+  const toggleFound = (await toggle.count().catch(() => 0)) > 0;
+  let afterToggleMove = null;
+  if (toggleFound) {
+    await toggle.hover({ timeout: 3000 });
+    afterToggleMove = await readTargetCommentOverlayState(page);
+    await toggle.click({ timeout: 3000 });
+  }
+
+  const panel = overlay.locator(".bbvt-comment-filter-details-panel").first();
+  await panel.waitFor({ state: "visible", timeout: 2000 }).catch(() => {});
+  const panelFound = (await panel.count().catch(() => 0)) > 0;
+  const button = panel.locator(".bbvt-comment-filter-reason-remove").first();
+  const buttonFound = (await button.count().catch(() => 0)) > 0;
+  let afterControlMove = null;
+  if (buttonFound) {
+    await button.hover({ timeout: 3000 });
+    afterControlMove = await readTargetCommentOverlayState(page);
+    await button.click({ timeout: 3000 });
+  }
+
+  return {
+    found,
+    toggleFound,
+    panelFound,
+    buttonFound,
+    afterToggleMove,
+    afterControlMove,
+  };
 }
 
 async function checkCommentQuickBlockMarker(page, keyword) {
+  await page.mouse.move(1, 1).catch(() => {});
+  await page.waitForTimeout(120);
   return page.evaluate(checkCommentQuickBlockMarkerInBrowser, keyword);
 }
 
@@ -306,6 +466,7 @@ async function runTiming(runDir, recorder) {
     recorder.mark("keyword.selected", {
       keyword,
       firstComment: cleanText(before.firstComment.text),
+      replyResponses: before.replyResponses.length,
     });
 
     if (!noInject) {
@@ -409,8 +570,8 @@ async function runTiming(runDir, recorder) {
     }
 
     const toggledOff = await toggleFloatingEntry(page);
-    recorder.mark("ui.click", { action: "toggle-script-off", clicked: toggledOff });
-    if (!toggledOff) {
+    recorder.mark("ui.click", { action: "toggle-script-off", ...toggledOff });
+    if (!toggledOff.clicked) {
       throw new Error("Could not click the floating entry main button.");
     }
 
