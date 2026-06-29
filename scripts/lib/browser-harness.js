@@ -4,6 +4,10 @@ import { randomUUID } from "node:crypto";
 
 const DEFAULT_LOCK_TTL_MS = 30 * 60 * 1000;
 
+function cleanLocatorText(value) {
+  return String(value ?? "").replace(/\s+/g, " ").trim();
+}
+
 export function browserLockDir(port = 9223) {
   return path.resolve("artifacts/locks", `browser-${port}.lock`);
 }
@@ -100,6 +104,114 @@ export async function withBrowserLease(port, owner, meta, fn) {
   } finally {
     await releaseBrowserLease(port, lease);
   }
+}
+
+export function isBilibiliReplyResponse(response, { requireOk = true } = {}) {
+  const rawUrl = response?.url?.() ?? "";
+  if (!rawUrl) {
+    return false;
+  }
+
+  let url;
+  try {
+    url = new URL(rawUrl);
+  } catch {
+    return false;
+  }
+
+  if (
+    (url.hostname !== "bilibili.com" && !url.hostname.endsWith(".bilibili.com")) ||
+    !url.pathname.startsWith("/x/v2/reply")
+  ) {
+    return false;
+  }
+
+  if (requireOk && response.status?.() !== 200) {
+    return false;
+  }
+
+  return true;
+}
+
+export function summarizeNetworkResponse(response) {
+  return {
+    status: response?.status?.() ?? null,
+    method: response?.request?.()?.method?.() ?? null,
+    url: response?.url?.() ?? "",
+  };
+}
+
+export async function waitForBilibiliReplyResponse(page, action, {
+  timeoutMs = 5000,
+  requireOk = true,
+} = {}) {
+  const responsePromise = page
+    .waitForResponse((response) => isBilibiliReplyResponse(response, { requireOk }), { timeout: timeoutMs })
+    .catch((error) => {
+      if (/timeout/i.test(error?.message ?? "")) {
+        return null;
+      }
+      throw error;
+    });
+
+  try {
+    await action();
+  } catch (error) {
+    await responsePromise.catch(() => null);
+    throw error;
+  }
+
+  return responsePromise;
+}
+
+export function normalizeBilibiliVideoHref(href, baseUrl = "https://www.bilibili.com/") {
+  if (!href) {
+    return null;
+  }
+
+  try {
+    const url = new URL(String(href), baseUrl);
+    if (url.hostname !== "www.bilibili.com" || !url.pathname.startsWith("/video/BV")) {
+      return null;
+    }
+    url.search = "";
+    url.hash = "";
+    return url.href;
+  } catch {
+    return null;
+  }
+}
+
+export async function getFirstVisibleBilibiliVideoLink(page, {
+  maxCandidates = 80,
+  minWidth = 20,
+  minHeight = 20,
+} = {}) {
+  const links = page.locator('a[href*="/video/"]');
+  const count = Math.min(await links.count(), maxCandidates);
+  const baseUrl = page.url?.() || "https://www.bilibili.com/";
+
+  for (let index = 0; index < count; index += 1) {
+    const link = links.nth(index);
+    const href = normalizeBilibiliVideoHref(await link.getAttribute("href").catch(() => null), baseUrl);
+    if (!href) {
+      continue;
+    }
+
+    const box = await link.boundingBox().catch(() => null);
+    if (!box || box.width < minWidth || box.height < minHeight) {
+      continue;
+    }
+
+    const text =
+      (await link.innerText({ timeout: 500 }).catch(() => "")) ||
+      (await link.getAttribute("title").catch(() => "")) ||
+      (await link.getAttribute("aria-label").catch(() => ""));
+
+    return { href, text: cleanLocatorText(text) };
+  }
+
+  return null;
 }
 
 export async function scrollUntil(page, predicate, {
